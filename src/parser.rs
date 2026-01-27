@@ -43,7 +43,7 @@ impl Parser {
         }
     }
 
-    pub fn parse<'a>(&mut self, input: &'a [u8]) -> Result<Option<Event<'a>>, crate::Error> {
+    pub fn parse<'a>(&mut self, input: &'a [u8]) -> Result<Option<(usize, Event<'a>)>, crate::Error> {
         match &mut self.state {
             State::Start => {
                 if input.is_empty() {
@@ -65,7 +65,7 @@ impl Parser {
                         remaining: remaining.value,
                     };
 
-                    return Ok(Some(Event::PacketStart { header }));
+                    return Ok(Some((1, Event::PacketStart { header })));
                 };
 
                 Ok(None)
@@ -73,7 +73,7 @@ impl Parser {
             State::Body { remaining } => {
                 if *remaining == 0 {
                     self.state = State::Start;
-                    return Ok(Some(Event::PacketEnd));
+                    return Ok(Some((0, Event::PacketEnd)));
                 }
 
                 if input.is_empty() {
@@ -84,7 +84,7 @@ impl Parser {
                 let chunk = &input[..take];
                 *remaining -= take as u32;
 
-                Ok(Some(Event::PacketBody { chunk }))
+                Ok(Some((take, Event::PacketBody { chunk })))
             }
         }
     }
