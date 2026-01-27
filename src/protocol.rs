@@ -1,5 +1,5 @@
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum PacketType {
     Connect = 1,
     ConnAck = 2,
@@ -43,7 +43,7 @@ impl TryFrom<u8> for PacketType {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FixedHeader {
     pub packet_type: PacketType,
     pub flags: u8,

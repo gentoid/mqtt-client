@@ -10,7 +10,7 @@ pub(crate) enum State {
     Body { remaining: u32 },
 }
 
-struct Remaining {
+pub(crate) struct Remaining {
     packet_type: PacketType,
     flags: u8,
     multiplier: u32,
@@ -30,6 +30,7 @@ impl Remaining {
     }
 }
 
+#[derive(Debug)]
 pub enum Event<'a> {
     PacketStart { header: FixedHeader },
     PacketBody { chunk: &'a [u8] },
@@ -109,7 +110,9 @@ fn parse_remaining_len_byte(
     byte: u8,
 ) -> Result<Option<FixedHeader>, crate::Error> {
     let digit = (byte & 0x7F) as u32;
+    println!("Digit = {digit}, multiplier = {}", remaining.multiplier);
     remaining.value += digit * remaining.multiplier;
+    println!("Calculated value = {}", remaining.value);
     remaining.multiplier *= 128;
     remaining.bytes_read += 1;
 
@@ -126,4 +129,96 @@ fn parse_remaining_len_byte(
         flags: remaining.flags,
         remaining_len: remaining.value,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use heapless::Vec;
+
+    use crate::Error;
+
+    use super::*;
+
+    fn collect_events<'a, const N: usize>(
+        parser: &mut Parser,
+        mut input: &'a [u8],
+    ) -> Result<Vec<Event<'a>, N>, Error> {
+        let mut events = Vec::new();
+
+        let mut consumed_bytes = 0;
+
+        loop {
+            println!(
+                "consumed_bytes = {consumed_bytes}, input.len() = {}",
+                input.len()
+            );
+
+            let (consumed, event) = parser.parse(input)?;
+
+            consumed_bytes += consumed;
+
+            if let Some(event) = event {
+                events.push(event).unwrap();
+            };
+
+            if input.is_empty() || consumed == 0 {
+                return Ok(events);
+            }
+
+            input = &input[consumed..];
+        }
+    }
+
+    #[test]
+    fn remaining_len_single_byte() {
+        let mut parser = Parser::new();
+
+        // PingReq, remaining length = 0
+        let data = [0b1100_0000, 0x00];
+        let events = collect_events::<2>(&mut parser, &data).unwrap();
+
+        assert_eq!(events.len(), 2);
+
+        println!("0: {:?}", events[0]);
+        assert!(matches!(events[0], Event::PacketStart { header } if header.remaining_len == 0));
+
+        println!("1: {:?}", events[1]);
+        assert!(matches!(events[1], Event::PacketEnd));
+    }
+
+    #[test]
+    fn remaining_len_multibyte() {
+        let mut parser = Parser::new();
+
+        // PingReq, remaining length = 321
+        let data = [0b1100_0000, 0xC1, 0x02];
+        let events = collect_events::<1>(&mut parser, &data).unwrap();
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            Event::PacketStart { header } => assert_eq!(header.remaining_len, 321),
+            _ => panic!("Expected PacketStart"),
+        }
+    }
+
+    #[test]
+    fn body_single_chunk() {
+        let mut parser = Parser::new();
+
+        // Publish, remaining length = 3
+        let data = [0b0011_0000, 0x03, 0xAA, 0xBB, 0xCC];
+        let events = collect_events::<3>(&mut parser, &data).unwrap();
+
+        assert_eq!(events.len(), 3);
+        assert!(matches!(events[0], Event::PacketStart { .. }));
+
+        match events[1] {
+            Event::PacketBody { chunk } => assert_eq!(chunk, &[0xAA, 0xBB, 0xCC]),
+            _ => panic!("Expected PacketBody"),
+        }
+
+        assert!(matches!(events[2], Event::PacketEnd));
+    }
+
+    fn body_split_across_inputs() {}
 }
