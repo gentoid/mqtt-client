@@ -43,21 +43,24 @@ impl Parser {
         }
     }
 
-    pub fn parse<'a>(&mut self, input: &'a [u8]) -> Result<Option<(usize, Event<'a>)>, crate::Error> {
+    pub fn parse<'a>(
+        &mut self,
+        input: &'a [u8],
+    ) -> Result<(usize, Option<Event<'a>>), crate::Error> {
         match &mut self.state {
             State::Start => {
                 if input.is_empty() {
-                    return Ok(None);
+                    return Ok((0, None));
                 }
 
                 let (packet_type, flags) = parse_first_byte(input[0])?;
                 self.state = State::RemainingLen(Remaining::new(packet_type, flags));
 
-                Ok(None)
+                Ok((1, None))
             }
             State::RemainingLen(remaining) => {
                 if input.is_empty() {
-                    return Ok(None);
+                    return Ok((0, None));
                 }
 
                 if let Some(header) = parse_remaining_len_byte(remaining, input[0])? {
@@ -65,26 +68,26 @@ impl Parser {
                         remaining: remaining.value,
                     };
 
-                    return Ok(Some((1, Event::PacketStart { header })));
+                    return Ok((1, Some(Event::PacketStart { header })));
                 };
 
-                Ok(None)
+                Ok((1, None))
             }
             State::Body { remaining } => {
                 if *remaining == 0 {
                     self.state = State::Start;
-                    return Ok(Some((0, Event::PacketEnd)));
+                    return Ok((0, Some(Event::PacketEnd)));
                 }
 
                 if input.is_empty() {
-                    return Ok(None);
+                    return Ok((0, None));
                 }
 
                 let take = core::cmp::min(*remaining as usize, input.len());
                 let chunk = &input[..take];
                 *remaining -= take as u32;
 
-                Ok(Some((take, Event::PacketBody { chunk })))
+                Ok((take, Some(Event::PacketBody { chunk })))
             }
         }
     }
