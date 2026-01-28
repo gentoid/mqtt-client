@@ -1,7 +1,9 @@
+use crate::packet::PacketId;
+
 pub struct Publish<'a> {
     pub flags: Flags,
     pub topic: &'a str,
-    pub packet_id: Option<u16>,
+    pub packet_id: Option<PacketId>,
     pub payload: &'a [u8],
 }
 
@@ -40,14 +42,9 @@ pub(super) fn parse<'a>(flags: u8, body: &'a [u8]) -> Result<Publish<'a>, crate:
     let mut offset = 0;
 
     let mut get_bytes = |len: usize| {
-        if body.len() < offset + len {
-            return Err(crate::Error::MalformedPacket);
-        }
-
-        let prev_offset = offset;
-        offset += len;
-
-        Ok(&body[prev_offset..prev_offset + len])
+        let (bytes, new_offset) = super::get_bytes(body, offset, len)?;
+        offset = new_offset;
+        Ok(bytes)
     };
 
     let bytes = get_bytes(2)?;
@@ -61,13 +58,9 @@ pub(super) fn parse<'a>(flags: u8, body: &'a [u8]) -> Result<Publish<'a>, crate:
         None
     } else {
         let bytes = get_bytes(2)?;
-        let id = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let packet_id = PacketId::try_from(bytes)?;
 
-        if id == 0 {
-            return Err(crate::Error::MalformedPacket);
-        }
-
-        Some(id)
+        Some(packet_id)
     };
 
     let payload = &body[offset..];

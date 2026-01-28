@@ -7,6 +7,10 @@ pub mod publish;
 pub enum Packet<'a> {
     ConnAck(ConnAck),
     Publish(publish::Publish<'a>),
+    PubAck(PacketId),
+    PubRec(PacketId),
+    PubRel(PacketId),
+    PubComp(PacketId),
     SubAck(SubAck),
     PingReq,
     PingResp,
@@ -48,7 +52,7 @@ impl TryFrom<u8> for ConnectReturnCode {
 }
 
 pub struct SubAck<const N: usize = 16> {
-    packet_id: u16,
+    packet_id: PacketId,
     pub return_codes: Vec<SubAckReturnCode, N>,
 }
 
@@ -76,6 +80,34 @@ impl TryFrom<u8> for SubAckReturnCode {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct PacketId(u16);
+
+impl TryFrom<u16> for PacketId {
+    type Error = crate::Error;
+
+    fn try_from(id: u16) -> Result<Self, Self::Error> {
+        if id == 0 {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        Ok(Self(id))
+    }
+}
+
+impl TryFrom<&[u8]> for PacketId {
+    type Error = crate::Error;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != 2 {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        let id = u16::from_be_bytes([bytes[0], bytes[1]]);
+        Self::try_from(id)
+    }
+}
+
 fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::Error> {
     if header.remaining_len as usize != body.len() {
         return Err(crate::Error::MalformedPacket);
@@ -85,10 +117,10 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::E
         PacketType::Connect => todo!(),
         PacketType::ConnAck => parse_connack(body).map(Packet::ConnAck),
         PacketType::Publish => publish::parse(header.flags, body).map(Packet::Publish),
-        PacketType::PubAck => todo!(),
-        PacketType::PubRec => todo!(),
-        PacketType::PubRel => todo!(),
-        PacketType::PubComp => todo!(),
+        PacketType::PubAck => parse_packet_id(body).map(Packet::PubAck),
+        PacketType::PubRec => parse_packet_id(body).map(Packet::PubRec),
+        PacketType::PubRel => parse_packet_id(body).map(Packet::PubRel),
+        PacketType::PubComp => parse_packet_id(body).map(Packet::PubComp),
         PacketType::Subscribe => todo!(),
         PacketType::SubAck => parse_suback(&body).map(Packet::SubAck),
         PacketType::Unsubscribe => todo!(),
@@ -130,7 +162,7 @@ fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> 
         return Err(crate::Error::MalformedPacket);
     }
 
-    let packet_id = u16::from_be_bytes([body[0], body[1]]);
+    let packet_id = PacketId::try_from(&body[..2])?;
     let mut return_codes = Vec::<SubAckReturnCode, N>::new();
 
     for &byte in &body[2..] {
@@ -144,6 +176,19 @@ fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> 
         packet_id,
         return_codes,
     })
+}
+
+pub(super) fn parse_packet_id(body: &[u8]) -> Result<PacketId, crate::Error> {
+    let (bytes, _) = get_bytes(body, 0, 2)?;
+    PacketId::try_from(bytes)
+}
+
+fn get_bytes(body: &[u8], offset: usize, len: usize) -> Result<(&[u8], usize), crate::Error> {
+    if body.len() < offset + len {
+        return Err(crate::Error::MalformedPacket);
+    }
+
+    Ok((&body[offset..offset + len], offset + len))
 }
 
 #[cfg(test)]
@@ -176,7 +221,7 @@ mod tests {
         let body = [0x00, 0x10, 0x01];
         let packet = parse_suback::<1>(&body).unwrap();
 
-        assert_eq!(packet.packet_id, 16);
+        assert_eq!(packet.packet_id.0, 16);
         assert_eq!(packet.return_codes.len(), 1);
         assert!(matches!(
             packet.return_codes[0],
