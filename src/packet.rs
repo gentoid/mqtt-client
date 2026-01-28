@@ -1,10 +1,13 @@
+use heapless::Vec;
+
 use crate::protocol::{FixedHeader, PacketType};
 
 pub enum Packet {
+    ConnAck(ConnAck),
+    SubAck(SubAck),
     PingReq,
     PingResp,
     Disconnect,
-    ConnAck(ConnAck),
 }
 
 pub struct ConnAck {
@@ -41,6 +44,35 @@ impl TryFrom<u8> for ConnectReturnCode {
     }
 }
 
+pub struct SubAck<const N: usize = 16> {
+    packet_id: u16,
+    pub return_codes: Vec<SubAckReturnCode, N>,
+}
+
+#[repr(u8)]
+pub enum SubAckReturnCode {
+    SuccessMaxQoS0 = 0x00,
+    SuccessMaxQoS1 = 0x01,
+    SuccessMaxQoS2 = 0x02,
+    Failure = 0x80,
+}
+
+impl TryFrom<u8> for SubAckReturnCode {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let code = match value {
+            0x00 => Self::SuccessMaxQoS0,
+            0x01 => Self::SuccessMaxQoS1,
+            0x02 => Self::SuccessMaxQoS2,
+            0x80 => Self::Failure,
+            _ => return Err(crate::Error::MalformedPacket),
+        };
+
+        Ok(code)
+    }
+}
+
 fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet, crate::Error> {
     if header.remaining_len as usize != body.len() {
         return Err(crate::Error::MalformedPacket);
@@ -48,14 +80,14 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet, crate::Error
 
     match header.packet_type {
         PacketType::Connect => todo!(),
-        PacketType::ConnAck => todo!(),
+        PacketType::ConnAck => parse_connack(body),
         PacketType::Publish => todo!(),
         PacketType::PubAck => todo!(),
         PacketType::PubRec => todo!(),
         PacketType::PubRel => todo!(),
         PacketType::PubComp => todo!(),
         PacketType::Subscribe => todo!(),
-        PacketType::SubAck => todo!(),
+        PacketType::SubAck => parse_suback(&body).map(Packet::SubAck),
         PacketType::Unsubscribe => todo!(),
         PacketType::UnsubAck => todo!(),
         PacketType::PingReq => expect_body_len(body, 0).map(|_| Packet::PingReq),
@@ -90,6 +122,27 @@ fn parse_connack(body: &[u8]) -> Result<Packet, crate::Error> {
     }))
 }
 
+fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> {
+    if body.len() < 2 {
+        return Err(crate::Error::MalformedPacket);
+    }
+
+    let packet_id = u16::from_be_bytes([body[0], body[1]]);
+    let mut return_codes = Vec::<SubAckReturnCode, N>::new();
+
+    for &byte in &body[2..] {
+        let code = SubAckReturnCode::try_from(byte)?;
+        return_codes
+            .push(code)
+            .map_err(|_| crate::Error::TooSmallSubAckVector)?;
+    }
+
+    Ok(SubAck {
+        packet_id,
+        return_codes,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +165,25 @@ mod tests {
     fn connack_invalid_flags() {
         let body = [0b0000_0010, 0x00];
         assert!(parse_connack(&body).is_err());
+    }
+
+    #[test]
+    fn suback_single_success() {
+        // packet_id = 16, return code = 1
+        let body = [0x00, 0x10, 0x01];
+        let packet = parse_suback::<1>(&body).unwrap();
+
+        assert_eq!(packet.packet_id, 16);
+        assert_eq!(packet.return_codes.len(), 1);
+        assert!(matches!(
+            packet.return_codes[0],
+            SubAckReturnCode::SuccessMaxQoS1
+        ));
+    }
+
+    #[test]
+    fn suback_invalid_return_code() {
+        let body = [0x00, 0x10, 0x05];
+        assert!(parse_suback::<1>(&body).is_err());
     }
 }
