@@ -209,7 +209,8 @@ fn get_bytes(body: &[u8], offset: usize, len: usize) -> Result<(&[u8], usize), c
         return Err(crate::Error::MalformedPacket);
     }
 
-    Ok((&body[offset..offset + len], offset + len))
+    let new_offset = offset + len;
+    Ok((&body[offset..new_offset], new_offset))
 }
 
 #[cfg(test)]
