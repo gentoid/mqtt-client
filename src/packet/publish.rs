@@ -1,4 +1,4 @@
-use crate::packet::PacketId;
+use crate::packet::{PacketId, QoS};
 
 pub struct Publish<'a> {
     pub flags: Flags,
@@ -13,23 +13,12 @@ pub struct Flags {
     pub retain: bool,
 }
 
-pub enum QoS {
-    AtMostOnce = 0,
-    AtLeastOnce = 1,
-    ExactlyOnce = 2,
-}
-
 impl TryFrom<u8> for Flags {
     type Error = crate::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         let dup = value & 0b1000 == 1;
-        let qos = match (value >> 1) & 0b11 {
-            0 => QoS::AtMostOnce,
-            1 => QoS::AtLeastOnce,
-            2 => QoS::ExactlyOnce,
-            _ => return Err(crate::Error::InvalidQoS),
-        };
+        let qos = QoS::try_from((value >> 1) & 0b11)?;
         let retain = value & 0b0001 == 1;
 
         Ok(Self { dup, qos, retain })

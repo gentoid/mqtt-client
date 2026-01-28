@@ -17,6 +17,27 @@ pub enum Packet<'a> {
     Disconnect,
 }
 
+pub enum QoS {
+    AtMostOnce = 0,
+    AtLeastOnce = 1,
+    ExactlyOnce = 2,
+}
+
+impl TryFrom<u8> for QoS {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let qos = match value {
+            0 => Self::AtMostOnce,
+            1 => Self::AtLeastOnce,
+            2 => Self::ExactlyOnce,
+            _ => return Err(crate::Error::InvalidQoS),
+        };
+
+        Ok(qos)
+    }
+}
+
 pub struct ConnAck {
     pub session_present: bool,
     pub return_code: ConnectReturnCode,
