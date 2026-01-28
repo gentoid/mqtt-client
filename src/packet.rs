@@ -1,10 +1,5 @@
-use heapless::Vec;
-
 use crate::{
-    packet::{
-        publish::{SubAck, SubAckReturnCode},
-        subscribe::Subscribe,
-    },
+    packet::subscribe::{SubAck, Subscribe},
     protocol::{FixedHeader, PacketType},
 };
 
@@ -122,7 +117,7 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::E
         PacketType::PubRel => parse_packet_id(body).map(Packet::PubRel),
         PacketType::PubComp => parse_packet_id(body).map(Packet::PubComp),
         PacketType::Subscribe => subscribe::parse(body).map(Packet::Subscribe),
-        PacketType::SubAck => parse_suback(&body).map(Packet::SubAck),
+        PacketType::SubAck => subscribe::parse_suback(&body).map(Packet::SubAck),
         PacketType::Unsubscribe => todo!(),
         PacketType::UnsubAck => todo!(),
         PacketType::PingReq => expect_body_len(body, 0).map(|_| Packet::PingReq),
@@ -154,27 +149,6 @@ fn parse_connack(body: &[u8]) -> Result<ConnAck, crate::Error> {
     Ok(ConnAck {
         return_code,
         session_present,
-    })
-}
-
-fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> {
-    if body.len() < 2 {
-        return Err(crate::Error::MalformedPacket);
-    }
-
-    let packet_id = PacketId::try_from(&body[..2])?;
-    let mut return_codes = Vec::<SubAckReturnCode, N>::new();
-
-    for &byte in &body[2..] {
-        let code = SubAckReturnCode::try_from(byte)?;
-        return_codes
-            .push(code)
-            .map_err(|_| crate::Error::TooSmallSubAckVector)?;
-    }
-
-    Ok(SubAck {
-        packet_id,
-        return_codes,
     })
 }
 
@@ -214,25 +188,5 @@ mod tests {
     fn connack_invalid_flags() {
         let body = [0b0000_0010, 0x00];
         assert!(parse_connack(&body).is_err());
-    }
-
-    #[test]
-    fn suback_single_success() {
-        // packet_id = 16, return code = 1
-        let body = [0x00, 0x10, 0x01];
-        let packet = parse_suback::<1>(&body).unwrap();
-
-        assert_eq!(packet.packet_id.0, 16);
-        assert_eq!(packet.return_codes.len(), 1);
-        assert!(matches!(
-            packet.return_codes[0],
-            SubAckReturnCode::SuccessMaxQoS1
-        ));
-    }
-
-    #[test]
-    fn suback_invalid_return_code() {
-        let body = [0x00, 0x10, 0x05];
-        assert!(parse_suback::<1>(&body).is_err());
     }
 }
