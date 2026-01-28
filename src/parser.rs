@@ -114,9 +114,8 @@ fn parse_remaining_len_byte(
     }
 
     let digit = (byte & 0x7F) as u32;
-    println!("Digit = {digit}, multiplier = {}", remaining.multiplier);
+
     remaining.value += digit * remaining.multiplier;
-    println!("Calculated value = {}", remaining.value);
     remaining.multiplier *= 128;
     remaining.bytes_read += 1;
 
@@ -145,17 +144,8 @@ mod tests {
     ) -> Result<Vec<Event<'a>, N>, Error> {
         let mut events = Vec::new();
 
-        let mut consumed_bytes = 0;
-
         loop {
-            println!(
-                "consumed_bytes = {consumed_bytes}, input.len() = {}",
-                input.len()
-            );
-
             let (consumed, event) = parser.parse(input)?;
-
-            consumed_bytes += consumed;
 
             if let Some(event) = event {
                 events.push(event).unwrap();
@@ -179,10 +169,7 @@ mod tests {
 
         assert_eq!(events.len(), 2);
 
-        println!("0: {:?}", events[0]);
         assert!(matches!(events[0], Event::PacketStart { header } if header.remaining_len == 0));
-
-        println!("1: {:?}", events[1]);
         assert!(matches!(events[1], Event::PacketEnd));
     }
 

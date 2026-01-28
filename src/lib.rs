@@ -1,4 +1,4 @@
-// #![no_std]
+#![no_std]
 
 pub mod parser;
 pub mod protocol;
