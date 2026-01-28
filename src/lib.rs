@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod packet;
 pub mod parser;
 pub mod protocol;
 
@@ -8,4 +9,6 @@ pub enum Error {
     InvalidFlags,
     MalformedRemainingLength,
     InvalidPacketType,
+    MalformedPacket,
+    InvalidConnectReturnCode,
 }

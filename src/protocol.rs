@@ -1,5 +1,5 @@
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PacketType {
     Connect = 1,
     ConnAck = 2,
