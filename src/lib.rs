@@ -12,4 +12,6 @@ pub enum Error {
     MalformedPacket,
     InvalidConnectReturnCode,
     TooSmallSubAckVector,
+    InvalidQoS,
+    InvalidUtf8,
 }

@@ -2,8 +2,11 @@ use heapless::Vec;
 
 use crate::protocol::{FixedHeader, PacketType};
 
-pub enum Packet {
+pub mod publish;
+
+pub enum Packet<'a> {
     ConnAck(ConnAck),
+    Publish(publish::Publish<'a>),
     SubAck(SubAck),
     PingReq,
     PingResp,
@@ -73,15 +76,15 @@ impl TryFrom<u8> for SubAckReturnCode {
     }
 }
 
-fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet, crate::Error> {
+fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::Error> {
     if header.remaining_len as usize != body.len() {
         return Err(crate::Error::MalformedPacket);
     }
 
     match header.packet_type {
         PacketType::Connect => todo!(),
-        PacketType::ConnAck => parse_connack(body),
-        PacketType::Publish => todo!(),
+        PacketType::ConnAck => parse_connack(body).map(Packet::ConnAck),
+        PacketType::Publish => publish::parse(header.flags, body).map(Packet::Publish),
         PacketType::PubAck => todo!(),
         PacketType::PubRec => todo!(),
         PacketType::PubRel => todo!(),
@@ -104,7 +107,7 @@ fn expect_body_len(body: &[u8], len: usize) -> Result<(), crate::Error> {
     Err(crate::Error::MalformedPacket)
 }
 
-fn parse_connack(body: &[u8]) -> Result<Packet, crate::Error> {
+fn parse_connack(body: &[u8]) -> Result<ConnAck, crate::Error> {
     expect_body_len(body, 2)?;
 
     let flags = body[0];
@@ -116,10 +119,10 @@ fn parse_connack(body: &[u8]) -> Result<Packet, crate::Error> {
 
     let session_present = (flags & 0b0000_0001) == 1;
 
-    Ok(Packet::ConnAck(ConnAck {
+    Ok(ConnAck {
         return_code,
         session_present,
-    }))
+    })
 }
 
 fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> {
@@ -154,10 +157,10 @@ mod tests {
 
         assert!(matches!(
             packet,
-            Packet::ConnAck(ConnAck {
+            ConnAck {
                 session_present: false,
                 return_code: ConnectReturnCode::Accepted
-            })
+            }
         ));
     }
 
