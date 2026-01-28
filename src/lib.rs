@@ -14,4 +14,5 @@ pub enum Error {
     TooSmallSubAckVector,
     InvalidQoS,
     InvalidUtf8,
+    TooSmallSubscriptionVector,
 }

@@ -1,3 +1,5 @@
+use heapless::Vec;
+
 use crate::packet::{PacketId, QoS};
 
 pub struct Publish<'a> {
@@ -22,6 +24,35 @@ impl TryFrom<u8> for Flags {
         let retain = value & 0b0001 == 1;
 
         Ok(Self { dup, qos, retain })
+    }
+}
+
+pub struct SubAck<const N: usize = 16> {
+    pub(crate) packet_id: PacketId,
+    pub return_codes: Vec<SubAckReturnCode, N>,
+}
+
+#[repr(u8)]
+pub enum SubAckReturnCode {
+    SuccessMaxQoS0 = 0x00,
+    SuccessMaxQoS1 = 0x01,
+    SuccessMaxQoS2 = 0x02,
+    Failure = 0x80,
+}
+
+impl TryFrom<u8> for SubAckReturnCode {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let code = match value {
+            0x00 => Self::SuccessMaxQoS0,
+            0x01 => Self::SuccessMaxQoS1,
+            0x02 => Self::SuccessMaxQoS2,
+            0x80 => Self::Failure,
+            _ => return Err(crate::Error::MalformedPacket),
+        };
+
+        Ok(code)
     }
 }
 

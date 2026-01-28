@@ -1,8 +1,15 @@
 use heapless::Vec;
 
-use crate::protocol::{FixedHeader, PacketType};
+use crate::{
+    packet::{
+        publish::{SubAck, SubAckReturnCode},
+        subscribe::Subscribe,
+    },
+    protocol::{FixedHeader, PacketType},
+};
 
 pub mod publish;
+pub mod subscribe;
 
 pub enum Packet<'a> {
     ConnAck(ConnAck),
@@ -11,6 +18,7 @@ pub enum Packet<'a> {
     PubRec(PacketId),
     PubRel(PacketId),
     PubComp(PacketId),
+    Subscribe(Subscribe<'a>),
     SubAck(SubAck),
     PingReq,
     PingResp,
@@ -72,35 +80,6 @@ impl TryFrom<u8> for ConnectReturnCode {
     }
 }
 
-pub struct SubAck<const N: usize = 16> {
-    packet_id: PacketId,
-    pub return_codes: Vec<SubAckReturnCode, N>,
-}
-
-#[repr(u8)]
-pub enum SubAckReturnCode {
-    SuccessMaxQoS0 = 0x00,
-    SuccessMaxQoS1 = 0x01,
-    SuccessMaxQoS2 = 0x02,
-    Failure = 0x80,
-}
-
-impl TryFrom<u8> for SubAckReturnCode {
-    type Error = crate::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        let code = match value {
-            0x00 => Self::SuccessMaxQoS0,
-            0x01 => Self::SuccessMaxQoS1,
-            0x02 => Self::SuccessMaxQoS2,
-            0x80 => Self::Failure,
-            _ => return Err(crate::Error::MalformedPacket),
-        };
-
-        Ok(code)
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub struct PacketId(u16);
 
@@ -142,7 +121,7 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::E
         PacketType::PubRec => parse_packet_id(body).map(Packet::PubRec),
         PacketType::PubRel => parse_packet_id(body).map(Packet::PubRel),
         PacketType::PubComp => parse_packet_id(body).map(Packet::PubComp),
-        PacketType::Subscribe => todo!(),
+        PacketType::Subscribe => subscribe::parse(body).map(Packet::Subscribe),
         PacketType::SubAck => parse_suback(&body).map(Packet::SubAck),
         PacketType::Unsubscribe => todo!(),
         PacketType::UnsubAck => todo!(),
