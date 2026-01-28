@@ -109,16 +109,16 @@ fn parse_remaining_len_byte(
     remaining: &mut Remaining,
     byte: u8,
 ) -> Result<Option<FixedHeader>, crate::Error> {
+    if remaining.bytes_read > 3 {
+        return Err(crate::Error::MalformedRemainingLength);
+    }
+
     let digit = (byte & 0x7F) as u32;
     println!("Digit = {digit}, multiplier = {}", remaining.multiplier);
     remaining.value += digit * remaining.multiplier;
     println!("Calculated value = {}", remaining.value);
     remaining.multiplier *= 128;
     remaining.bytes_read += 1;
-
-    if remaining.bytes_read > 4 {
-        return Err(crate::Error::MalformedRemainingLength);
-    }
 
     if (byte & 0x80) != 0 {
         return Ok(None);
@@ -161,7 +161,7 @@ mod tests {
                 events.push(event).unwrap();
             };
 
-            if input.is_empty() || consumed == 0 {
+            if input.is_empty() {
                 return Ok(events);
             }
 
@@ -220,5 +220,58 @@ mod tests {
         assert!(matches!(events[2], Event::PacketEnd));
     }
 
-    fn body_split_across_inputs() {}
+    #[test]
+    fn body_split_across_inputs() {
+        let mut parser = Parser::new();
+
+        let data1 = [0b0011_0000, 0x04, 0x01];
+        let data2 = [0x23, 0x45];
+        let data3 = [0x67];
+
+        let mut events: Vec<Event<'_>, 6> = Vec::new();
+
+        for chunk in [&data1[..], &data2[..], &data3[..]] {
+            for event in collect_events::<2>(&mut parser, &chunk)
+                .unwrap()
+                .into_iter()
+            {
+                events.push(event).unwrap();
+            }
+        }
+
+        assert!(matches!(events[0], Event::PacketStart { .. }));
+
+        let body: Vec<u8, 4> = events
+            .iter()
+            .filter(|event| matches!(event, Event::PacketBody { .. }))
+            .flat_map(|event| match event {
+                Event::PacketBody { chunk } => chunk.into_iter().copied(),
+                _ => unreachable!(),
+            })
+            .collect();
+
+        assert_eq!(&body, &[0x01, 0x23, 0x45, 0x67]);
+        assert!(matches!(events.last(), Some(Event::PacketEnd)));
+    }
+
+    #[test]
+    fn two_packets_back_to_back() {
+        let mut parser = Parser::new();
+        let data = [0b1100_0000, 0x00, 0b1100_0000, 0x00];
+
+        let events = collect_events::<4>(&mut parser, &data).unwrap();
+
+        assert_eq!(events.len(), 4);
+        assert!(matches!(events[1], Event::PacketEnd));
+        assert!(matches!(events[3], Event::PacketEnd));
+    }
+
+    #[test]
+    fn remaining_len_too_long() {
+        let mut parser = Parser::new();
+        let data = [0b1100_0000, 0xFF, 0xFF, 0xFF, 0xFF, 0x01];
+        let err = collect_events::<2>(&mut parser, &data).unwrap_err();
+
+        assert!(matches!(err, crate::Error::MalformedRemainingLength));
+    }
 }
