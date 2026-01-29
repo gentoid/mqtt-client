@@ -1,16 +1,19 @@
 use crate::{
     packet::{
+        connect::{ConnAck, Connect},
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
     protocol::{FixedHeader, PacketType},
 };
 
+pub mod connect;
 pub mod publish;
 pub mod subscribe;
 pub mod unsubscribe;
 
 pub enum Packet<'a> {
+    Connect(Connect<'a>),
     ConnAck(ConnAck),
     Publish(publish::Publish<'a>),
     PubAck(PacketId),
@@ -47,40 +50,6 @@ impl TryFrom<u8> for QoS {
     }
 }
 
-pub struct ConnAck {
-    pub session_present: bool,
-    pub return_code: ConnectReturnCode,
-}
-
-// @note: for MQTT 5.0 it is a whole another story
-#[repr(u8)]
-pub enum ConnectReturnCode {
-    Accepted = 0,
-    UnacceptableProtocolVersion = 1,
-    IdentifierRejected = 2,
-    ServerUnavailable = 3,
-    BadUserNameOrPassword = 4,
-    NotAuthorized = 5,
-}
-
-impl TryFrom<u8> for ConnectReturnCode {
-    type Error = crate::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        let code = match value {
-            0 => Self::Accepted,
-            1 => Self::UnacceptableProtocolVersion,
-            2 => Self::IdentifierRejected,
-            3 => Self::ServerUnavailable,
-            4 => Self::BadUserNameOrPassword,
-            5 => Self::NotAuthorized,
-            _ => return Err(crate::Error::InvalidConnectReturnCode),
-        };
-
-        Ok(code)
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub struct PacketId(u16);
 
@@ -104,8 +73,7 @@ impl TryFrom<&[u8]> for PacketId {
             return Err(crate::Error::MalformedPacket);
         }
 
-        let id = u16::from_be_bytes([bytes[0], bytes[1]]);
-        Self::try_from(id)
+        Self::try_from(parse_u16(bytes, &mut 0)?)
     }
 }
 
@@ -115,8 +83,8 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::E
     }
 
     match header.packet_type {
-        PacketType::Connect => todo!(),
-        PacketType::ConnAck => parse_connack(body).map(Packet::ConnAck),
+        PacketType::Connect => connect::parse(body).map(Packet::Connect),
+        PacketType::ConnAck => connect::parse_connack(body).map(Packet::ConnAck),
         PacketType::Publish => publish::parse(header.flags, body).map(Packet::Publish),
         PacketType::PubAck => only_packet_id(body).map(Packet::PubAck),
         PacketType::PubRec => only_packet_id(body).map(Packet::PubRec),
@@ -140,22 +108,22 @@ fn expect_body_len(body: &[u8], len: usize) -> Result<(), crate::Error> {
     Err(crate::Error::MalformedPacket)
 }
 
-fn parse_connack(body: &[u8]) -> Result<ConnAck, crate::Error> {
-    expect_body_len(body, 2)?;
+fn parse_u16(body: &[u8], offset: &mut usize) -> Result<u16, crate::Error> {
+    let bytes = get_bytes(body, offset)(2)?;
+    Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+}
 
-    let flags = body[0];
-    let return_code = ConnectReturnCode::try_from(body[1])?;
+fn parse_binary_data<'a, 'b>(
+    body: &'a [u8],
+    offset: &'b mut usize,
+) -> Result<&'a [u8], crate::Error> {
+    let len = parse_u16(body, offset)? as usize;
 
-    if flags & 0b1111_1110 != 0 {
+    if body.len() < *offset + len {
         return Err(crate::Error::MalformedPacket);
     }
 
-    let session_present = (flags & 0b0000_0001) == 1;
-
-    Ok(ConnAck {
-        return_code,
-        session_present,
-    })
+    Ok(&body[*offset..*offset + len])
 }
 
 fn only_packet_id(body: &[u8]) -> Result<PacketId, crate::Error> {
@@ -173,11 +141,8 @@ fn parse_packet_id<'a>(body: &[u8], offset: &'a mut usize) -> Result<PacketId, c
 }
 
 fn parse_utf8_str<'a, 'b>(body: &'a [u8], offset: &'b mut usize) -> Result<&'a str, crate::Error> {
-    let mut get_bytes = get_bytes(body, offset);
-    let bytes = get_bytes(2)?;
-    let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
-
-    core::str::from_utf8(get_bytes(len)?).map_err(|_| crate::Error::InvalidUtf8)
+    let len = parse_u16(body, offset)? as usize;
+    core::str::from_utf8(get_bytes(body, offset)(len)?).map_err(|_| crate::Error::InvalidUtf8)
 }
 
 fn get_bytes<'a, 'b>(
@@ -192,30 +157,5 @@ fn get_bytes<'a, 'b>(
         let prev_offset = *offset;
         *offset += len;
         Ok(&body[prev_offset..*offset])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn connack_accepted() {
-        let body = [0x00, 0x00];
-        let packet = parse_connack(&body).unwrap();
-
-        assert!(matches!(
-            packet,
-            ConnAck {
-                session_present: false,
-                return_code: ConnectReturnCode::Accepted
-            }
-        ));
-    }
-
-    #[test]
-    fn connack_invalid_flags() {
-        let body = [0b0000_0010, 0x00];
-        assert!(parse_connack(&body).is_err());
     }
 }
