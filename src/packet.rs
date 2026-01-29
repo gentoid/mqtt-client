@@ -11,6 +11,7 @@ pub mod connect;
 pub mod publish;
 pub mod subscribe;
 pub mod unsubscribe;
+pub mod encode;
 
 pub enum Packet<'a> {
     Connect(Connect<'a>),
@@ -29,6 +30,8 @@ pub enum Packet<'a> {
     Disconnect,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy)]
 pub enum QoS {
     AtMostOnce = 0,
     AtLeastOnce = 1,
@@ -50,7 +53,7 @@ impl TryFrom<u8> for QoS {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(u16);
 
 impl TryFrom<u16> for PacketId {

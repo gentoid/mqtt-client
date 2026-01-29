@@ -12,7 +12,8 @@ pub enum Error {
     InvalidPacketType,
     MalformedPacket,
     InvalidConnectReturnCode,
-    TooSmallHeaplessVector,
+    VectorIsFull,
     InvalidQoS,
     InvalidUtf8,
+    EncodeNotImplemented,
 }
