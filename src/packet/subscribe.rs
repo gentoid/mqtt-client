@@ -55,7 +55,7 @@ pub(super) fn parse<'a, const N: usize>(body: &'a [u8]) -> Result<Subscribe<'a, 
 
         topics
             .push(Subscription { topic_filter, qos })
-            .map_err(|_| crate::Error::TooSmallSubscriptionVector)?;
+            .map_err(|_| crate::Error::TooSmallHeaplessVector)?;
     }
 
     if topics.is_empty() {
@@ -77,7 +77,7 @@ pub(super) fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, cra
         let code = SubAckReturnCode::try_from(byte)?;
         return_codes
             .push(code)
-            .map_err(|_| crate::Error::TooSmallSubAckVector)?;
+            .map_err(|_| crate::Error::TooSmallHeaplessVector)?;
     }
 
     Ok(SubAck {

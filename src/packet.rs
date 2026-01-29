@@ -1,10 +1,14 @@
 use crate::{
-    packet::subscribe::{SubAck, Subscribe},
+    packet::{
+        subscribe::{SubAck, Subscribe},
+        unsubscribe::Unsubscribe,
+    },
     protocol::{FixedHeader, PacketType},
 };
 
 pub mod publish;
 pub mod subscribe;
+pub mod unsubscribe;
 
 pub enum Packet<'a> {
     ConnAck(ConnAck),
@@ -15,6 +19,8 @@ pub enum Packet<'a> {
     PubComp(PacketId),
     Subscribe(Subscribe<'a>),
     SubAck(SubAck),
+    Unsubscribe(Unsubscribe<'a>),
+    UnsubAck(PacketId),
     PingReq,
     PingResp,
     Disconnect,
@@ -118,8 +124,8 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::E
         PacketType::PubComp => only_packet_id(body).map(Packet::PubComp),
         PacketType::Subscribe => subscribe::parse(body).map(Packet::Subscribe),
         PacketType::SubAck => subscribe::parse_suback(&body).map(Packet::SubAck),
-        PacketType::Unsubscribe => todo!(),
-        PacketType::UnsubAck => todo!(),
+        PacketType::Unsubscribe => unsubscribe::parse(body).map(Packet::Unsubscribe),
+        PacketType::UnsubAck => only_packet_id(body).map(Packet::UnsubAck),
         PacketType::PingReq => expect_body_len(body, 0).map(|_| Packet::PingReq),
         PacketType::PingResp => expect_body_len(body, 0).map(|_| Packet::PingResp),
         PacketType::Disconnect => expect_body_len(body, 0).map(|_| Packet::Disconnect),
