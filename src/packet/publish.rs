@@ -1,6 +1,4 @@
-use heapless::Vec;
-
-use crate::packet::{PacketId, QoS};
+use crate::packet::{PacketId, QoS, get_bytes, parse_packet_id, parse_utf8_str};
 
 pub struct Publish<'a> {
     pub flags: Flags,
@@ -32,24 +30,13 @@ pub(super) fn parse<'a>(flags: u8, body: &'a [u8]) -> Result<Publish<'a>, crate:
 
     let mut offset = 0;
 
-    let mut get_bytes = |len: usize| {
-        let (bytes, new_offset) = super::get_bytes(body, offset, len)?;
-        offset = new_offset;
-        Ok(bytes)
-    };
-
-    let bytes = get_bytes(2)?;
-    let topic_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
-    let topic_bytes = get_bytes(topic_len)?;
-
-    // @todo this cannot be a topic filter unlike subscribe, so maybe chec for allowed chars
-    let topic = core::str::from_utf8(topic_bytes).map_err(|_| crate::Error::InvalidUtf8)?;
+    // // @todo this cannot be a topic filter unlike subscribe, so maybe chec for allowed chars
+    let topic = parse_utf8_str(body, &mut offset)?;
 
     let packet_id = if let QoS::AtMostOnce = flags.qos {
         None
     } else {
-        let bytes = get_bytes(2)?;
-        let packet_id = PacketId::try_from(bytes)?;
+        let packet_id = parse_packet_id(body, &mut offset)?;
 
         Some(packet_id)
     };

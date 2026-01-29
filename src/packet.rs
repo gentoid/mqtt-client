@@ -112,10 +112,10 @@ fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::E
         PacketType::Connect => todo!(),
         PacketType::ConnAck => parse_connack(body).map(Packet::ConnAck),
         PacketType::Publish => publish::parse(header.flags, body).map(Packet::Publish),
-        PacketType::PubAck => parse_packet_id(body).map(Packet::PubAck),
-        PacketType::PubRec => parse_packet_id(body).map(Packet::PubRec),
-        PacketType::PubRel => parse_packet_id(body).map(Packet::PubRel),
-        PacketType::PubComp => parse_packet_id(body).map(Packet::PubComp),
+        PacketType::PubAck => only_packet_id(body).map(Packet::PubAck),
+        PacketType::PubRec => only_packet_id(body).map(Packet::PubRec),
+        PacketType::PubRel => only_packet_id(body).map(Packet::PubRel),
+        PacketType::PubComp => only_packet_id(body).map(Packet::PubComp),
         PacketType::Subscribe => subscribe::parse(body).map(Packet::Subscribe),
         PacketType::SubAck => subscribe::parse_suback(&body).map(Packet::SubAck),
         PacketType::Unsubscribe => todo!(),
@@ -152,18 +152,41 @@ fn parse_connack(body: &[u8]) -> Result<ConnAck, crate::Error> {
     })
 }
 
-pub(super) fn parse_packet_id(body: &[u8]) -> Result<PacketId, crate::Error> {
-    let (bytes, _) = get_bytes(body, 0, 2)?;
+fn only_packet_id(body: &[u8]) -> Result<PacketId, crate::Error> {
+    let len = 2;
+    expect_body_len(body, len)?;
+
+    let packet_id = parse_packet_id(body, &mut 0)?;
+    Ok(packet_id)
+}
+
+fn parse_packet_id<'a>(body: &[u8], offset: &'a mut usize) -> Result<PacketId, crate::Error> {
+    let len = 2;
+    let bytes = get_bytes(body, offset)(len)?;
     PacketId::try_from(bytes)
 }
 
-fn get_bytes(body: &[u8], offset: usize, len: usize) -> Result<(&[u8], usize), crate::Error> {
-    if body.len() < offset + len {
-        return Err(crate::Error::MalformedPacket);
-    }
+fn parse_utf8_str<'a, 'b>(body: &'a [u8], offset: &'b mut usize) -> Result<&'a str, crate::Error> {
+    let mut get_bytes = get_bytes(body, offset);
+    let bytes = get_bytes(2)?;
+    let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
 
-    let new_offset = offset + len;
-    Ok((&body[offset..new_offset], new_offset))
+    core::str::from_utf8(get_bytes(len)?).map_err(|_| crate::Error::InvalidUtf8)
+}
+
+fn get_bytes<'a, 'b>(
+    body: &'a [u8],
+    offset: &'b mut usize,
+) -> impl FnMut(usize) -> Result<&'a [u8], crate::Error> {
+    |len: usize| {
+        if body.len() < *offset + len {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        let prev_offset = *offset;
+        *offset += len;
+        Ok(&body[prev_offset..*offset])
+    }
 }
 
 #[cfg(test)]

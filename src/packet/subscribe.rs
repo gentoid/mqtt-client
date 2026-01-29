@@ -1,6 +1,6 @@
 use heapless::Vec;
 
-use crate::packet::{PacketId, QoS, get_bytes};
+use crate::packet::{PacketId, QoS, get_bytes, parse_packet_id, parse_utf8_str};
 
 pub struct Subscribe<'a, const N: usize = 16> {
     pub packet_id: PacketId,
@@ -43,25 +43,14 @@ impl TryFrom<u8> for SubAckReturnCode {
 
 pub(super) fn parse<'a, const N: usize>(body: &'a [u8]) -> Result<Subscribe<'a, N>, crate::Error> {
     let mut offset = 0;
-    let mut get_bytes = move |len: usize| {
-        let (bytes, new_offset) = get_bytes(body, offset, len)?;
-        offset = new_offset;
-        Ok(bytes)
-    };
 
-    let bytes = get_bytes(2)?;
-    let packet_id = PacketId::try_from(bytes)?;
+    let packet_id = parse_packet_id(body, &mut offset)?;
 
     let mut topics = Vec::<Subscription<'a>, N>::new();
 
     while offset < body.len() {
-        let bytes = get_bytes(2)?;
-        let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
-        let topic_bytes = get_bytes(len)?;
-        let topic_filter =
-            core::str::from_utf8(topic_bytes).map_err(|_| crate::Error::InvalidUtf8)?;
-
-        let qos_byte = get_bytes(1)?[0];
+        let topic_filter = parse_utf8_str(body, &mut offset)?;
+        let qos_byte = get_bytes(body, &mut offset)(1)?[0];
         let qos = QoS::try_from(qos_byte)?;
 
         topics
