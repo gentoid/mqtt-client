@@ -13,6 +13,8 @@ pub mod subscribe;
 pub mod unsubscribe;
 pub mod encode;
 
+const SUBSCRIBE_ID: u8 = 0b10000010;
+
 pub enum Packet<'a> {
     Connect(Connect<'a>),
     ConnAck(ConnAck),
@@ -53,6 +55,13 @@ impl TryFrom<u8> for QoS {
     }
 }
 
+impl encode::Encode for QoS {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        (*self as u8).encode(out)?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(u16);
 
@@ -77,6 +86,13 @@ impl TryFrom<&[u8]> for PacketId {
         }
 
         Self::try_from(parse_u16(bytes, &mut 0)?)
+    }
+}
+
+impl encode::Encode for PacketId {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        self.0.encode(out)?;
+        Ok(())
     }
 }
 

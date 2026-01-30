@@ -1,15 +1,37 @@
 use heapless::Vec;
 
-use crate::packet::{PacketId, QoS, encode::is_full, get_bytes, parse_packet_id, parse_utf8_str};
+use crate::packet::{
+    PacketId, QoS, SUBSCRIBE_ID, encode::{self, is_full}, get_bytes, parse_packet_id, parse_utf8_str
+};
 
 pub struct Subscribe<'a, const N: usize = 16> {
     pub packet_id: PacketId,
     pub topics: Vec<Subscription<'a>, N>,
 }
 
+impl<'a, const P: usize> encode::Encode for Subscribe<'a, P> {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        let mut body: Vec<u8, N> = Vec::new();
+        self.packet_id.encode(&mut body)?;
+        self.topics.encode(&mut body)?;
+
+        out.push(SUBSCRIBE_ID).map_err(is_full)?;
+        body.encode(out)?;
+        Ok(())
+    }
+}
+
 pub struct Subscription<'a> {
     pub topic_filter: &'a str,
     pub qos: QoS,
+}
+
+impl<'a> encode::Encode for Subscription<'a> {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        self.topic_filter.encode(out)?;
+        self.qos.encode(out)?;
+        Ok(())
+    }
 }
 
 pub struct SubAck<const N: usize = 16> {
@@ -86,16 +108,21 @@ pub(super) fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, cra
     })
 }
 
-pub(super) fn encode<const N: usize>(out: &mut heapless::Vec<u8, N>, packet: &Subscribe<'_>) -> Result<(), crate::Error> {
-    out.extend_from_slice(&packet.packet_id.0.to_be_bytes()).map_err(is_full)?;
+// pub(super) fn encode<const N: usize>(
+//     out: &mut heapless::Vec<u8, N>,
+//     packet: &Subscribe<'_>,
+// ) -> Result<(), crate::Error> {
+//     out.extend_from_slice(&packet.packet_id.0.to_be_bytes())
+//         .map_err(is_full)?;
 
-    for sub in &packet.topics {
-        out.extend_from_slice(sub.topic_filter.as_bytes()).map_err(is_full)?;
-        out.push(sub.qos as u8).map_err(is_full)?;
-    }
+//     for sub in &packet.topics {
+//         out.extend_from_slice(sub.topic_filter.as_bytes())
+//             .map_err(is_full)?;
+//         out.push(sub.qos as u8).map_err(is_full)?;
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {
