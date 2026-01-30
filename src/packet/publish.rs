@@ -1,4 +1,4 @@
-use crate::packet::{PacketId, QoS, encode::is_full, get_bytes, parse_packet_id, parse_utf8_str};
+use crate::packet::{PacketId, QoS, encode::{self, is_full}, get_bytes, parse_packet_id, parse_utf8_str};
 
 pub struct Publish<'a> {
     pub flags: Flags,
@@ -51,11 +51,14 @@ pub(super) fn parse<'a>(flags: u8, body: &'a [u8]) -> Result<Publish<'a>, crate:
     })
 }
 
-pub(super) fn encode<const N: usize>(out: &mut heapless::Vec<u8, N>, packet: &Publish<'_>) -> Result<(), crate::Error> {
-    out.extend_from_slice(packet.topic.as_bytes()).map_err(is_full)?;
-    out.extend_from_slice(&packet.packet_id.map(|id| id.0).unwrap_or(0).to_be_bytes()).map_err(is_full)?;
-    out.extend_from_slice(&packet.payload).map_err(is_full)?;
-    Ok(())
+impl <'a> encode::Encode for Publish<'a> {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        self.topic.encode(out)?;
+        self.packet_id.map(|id| id.0).unwrap_or(0).encode(out)?;
+        self.payload.encode(out)?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

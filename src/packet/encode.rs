@@ -13,9 +13,9 @@ impl Encode for Packet<'_> {
     fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
         match self {
             Self::Connect(_) => todo!(),
-            Self::Publish(packet) => publish::encode(out, &packet),
+            Self::Publish(packet) => packet.encode(out),
             Self::Subscribe(packet) => packet.encode(out),
-            Self::Unsubscribe(packet) => unsubscribe::encode(out, &packet),
+            Self::Unsubscribe(packet) => packet.encode(out),
             Self::PingReq => empty_body(out, PING_REQ_ID),
             Self::PingResp => empty_body(out, PING_RESP_ID),
             Self::Disconnect => empty_body(out, DISCONNECT_ID),
@@ -36,7 +36,8 @@ pub(super) fn is_full<T>(_: T) -> crate::Error {
 
 impl Encode for u16 {
     fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        out.extend_from_slice(&self.to_be_bytes()).map_err(is_full)?;
+        out.extend_from_slice(&self.to_be_bytes())
+            .map_err(is_full)?;
         Ok(())
     }
 }
@@ -57,12 +58,19 @@ impl Encode for &str {
     }
 }
 
-impl <T: Encode, const  P: usize> Encode for heapless::Vec<T, P> {
+impl<T: Encode, const P: usize> Encode for heapless::Vec<T, P> {
     fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
         for item in self.as_slice() {
             item.encode(out)?;
         }
 
+        Ok(())
+    }
+}
+
+impl Encode for &[u8] {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        out.extend_from_slice(self).map_err(is_full)?;
         Ok(())
     }
 }

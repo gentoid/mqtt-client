@@ -108,22 +108,6 @@ pub(super) fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, cra
     })
 }
 
-// pub(super) fn encode<const N: usize>(
-//     out: &mut heapless::Vec<u8, N>,
-//     packet: &Subscribe<'_>,
-// ) -> Result<(), crate::Error> {
-//     out.extend_from_slice(&packet.packet_id.0.to_be_bytes())
-//         .map_err(is_full)?;
-
-//     for sub in &packet.topics {
-//         out.extend_from_slice(sub.topic_filter.as_bytes())
-//             .map_err(is_full)?;
-//         out.push(sub.qos as u8).map_err(is_full)?;
-//     }
-
-//     Ok(())
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;

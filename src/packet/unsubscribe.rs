@@ -1,10 +1,19 @@
 use heapless::Vec;
 
-use crate::packet::{Packet, PacketId, encode::is_full, parse_packet_id, parse_utf8_str};
+use crate::packet::{Packet, PacketId, encode::{self, is_full}, parse_packet_id, parse_utf8_str};
 
 pub struct Unsubscribe<'a, const N: usize = 16> {
     pub packet_id: PacketId,
     pub topics: Vec<&'a str, N>,
+}
+
+impl <'a, const P: usize> encode::Encode for Unsubscribe<'a, P> {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        self.packet_id.encode(out)?;
+        self.topics.encode(out)?;
+
+        Ok(())
+    }
 }
 
 pub(super) fn parse<'a>(body: &'a [u8]) -> Result<Unsubscribe<'a>, crate::Error> {
@@ -25,14 +34,4 @@ pub(super) fn parse<'a>(body: &'a [u8]) -> Result<Unsubscribe<'a>, crate::Error>
     }
 
     Ok(Unsubscribe { packet_id, topics })
-}
-
-pub(super) fn encode<const N: usize>(out: &mut heapless::Vec<u8, N>, packet: &Unsubscribe<'_>) -> Result<(), crate::Error> {
-    out.extend_from_slice(&packet.packet_id.0.to_be_bytes()).map_err(is_full)?;
-
-    for topic in &packet.topics {
-        out.extend_from_slice(topic.as_bytes()).map_err(is_full)?;
-    }
-
-    Ok(())
 }
