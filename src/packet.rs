@@ -1,6 +1,10 @@
 use crate::{
     packet::{
-        connect::{ConnAck, Connect}, decode::Decode, subscribe::{SubAck, Subscribe}, unsubscribe::Unsubscribe
+        connect::{ConnAck, Connect},
+        decode::Decode,
+        encode::empty_body,
+        subscribe::{SubAck, Subscribe},
+        unsubscribe::Unsubscribe,
     },
     protocol::{FixedHeader, PacketType},
 };
@@ -13,6 +17,10 @@ pub mod subscribe;
 pub mod unsubscribe;
 
 const SUBSCRIBE_ID: u8 = 0b10000010;
+// const UNSUBSCRIBE_ID: u8 = ...;
+const PING_REQ_ID: u8 = 0b1100_0000;
+const PING_RESP_ID: u8 = 0b1101_0000;
+const DISCONNECT_ID: u8 = 0b1110_0000;
 
 pub enum Packet<'a> {
     Connect(Connect<'a>),
@@ -31,8 +39,26 @@ pub enum Packet<'a> {
     Disconnect,
 }
 
+impl encode::Encode for Packet<'_> {
+    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+        match self {
+            Self::Connect(_) => todo!(),
+            Self::Publish(packet) => packet.encode(out),
+            Self::Subscribe(packet) => packet.encode(out),
+            Self::Unsubscribe(packet) => packet.encode(out),
+            Self::PingReq => empty_body(out, PING_REQ_ID),
+            Self::PingResp => empty_body(out, PING_RESP_ID),
+            Self::Disconnect => empty_body(out, DISCONNECT_ID),
+            _ => Err(crate::Error::EncodeNotImplemented),
+        }
+    }
+}
+
 impl<'a> decode::Decode<'a> for Packet<'a> {
-    fn decode<'cursor>(header: &FixedHeader, cursor: &'cursor mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
+    fn decode<'cursor>(
+        header: &FixedHeader,
+        cursor: &'cursor mut decode::Cursor<'a>,
+    ) -> Result<Self, crate::Error> {
         if header.remaining_len as usize != cursor.remaining() {
             return Err(crate::Error::MalformedPacket);
         }
@@ -45,9 +71,13 @@ impl<'a> decode::Decode<'a> for Packet<'a> {
             PacketType::PubRec => only_packet_id(header, cursor).map(Packet::PubRec),
             PacketType::PubRel => only_packet_id(header, cursor).map(Packet::PubRel),
             PacketType::PubComp => only_packet_id(header, cursor).map(Packet::PubComp),
-            PacketType::Subscribe => subscribe::Subscribe::decode(header, cursor).map(Packet::Subscribe),
+            PacketType::Subscribe => {
+                subscribe::Subscribe::decode(header, cursor).map(Packet::Subscribe)
+            }
             PacketType::SubAck => subscribe::SubAck::decode(header, cursor).map(Packet::SubAck),
-            PacketType::Unsubscribe => unsubscribe::Unsubscribe::decode(header, cursor).map(Packet::Unsubscribe),
+            PacketType::Unsubscribe => {
+                unsubscribe::Unsubscribe::decode(header, cursor).map(Packet::Unsubscribe)
+            }
             PacketType::UnsubAck => only_packet_id(header, cursor).map(Packet::UnsubAck),
             PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
             PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
@@ -87,7 +117,10 @@ impl encode::Encode for QoS {
 }
 
 impl<'buf> decode::Decode<'buf> for QoS {
-    fn decode<'cursor>(header: &FixedHeader, cursor: &'cursor mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
+    fn decode<'cursor>(
+        header: &FixedHeader,
+        cursor: &'cursor mut decode::Cursor<'buf>,
+    ) -> Result<Self, crate::Error> {
         let byte = cursor.read_u8()?;
         Self::try_from(byte)
     }
@@ -128,14 +161,17 @@ impl encode::Encode for PacketId {
     }
 }
 
-impl <'a>decode::Decode<'a> for PacketId {
+impl<'a> decode::Decode<'a> for PacketId {
     fn decode(header: &FixedHeader, cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
         Self::try_from(cursor.read_u16()?)
     }
 }
 
-fn only_packet_id(header: &FixedHeader, cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
+fn only_packet_id(
+    header: &FixedHeader,
+    cursor: &mut decode::Cursor<'_>,
+) -> Result<PacketId, crate::Error> {
     let packet_id = PacketId::decode(header, cursor)?;
     cursor.expect_empty()?;
     Ok(packet_id)
-}   
+}
