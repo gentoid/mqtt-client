@@ -1,8 +1,6 @@
 use crate::{
     packet::{
-        connect::{ConnAck, Connect},
-        subscribe::{SubAck, Subscribe},
-        unsubscribe::Unsubscribe,
+        connect::{ConnAck, Connect}, decode::Decode, subscribe::{SubAck, Subscribe}, unsubscribe::Unsubscribe
     },
     protocol::{FixedHeader, PacketType},
 };
@@ -31,6 +29,31 @@ pub enum Packet<'a> {
     PingReq,
     PingResp,
     Disconnect,
+}
+
+impl<'a> decode::Decode<'a> for Packet<'a> {
+    fn decode<'cursor>(header: &FixedHeader, cursor: &'cursor mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
+        if header.remaining_len as usize != cursor.remaining() {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        match header.packet_type {
+            PacketType::Connect => connect::Connect::decode(header, cursor).map(Packet::Connect),
+            PacketType::ConnAck => connect::ConnAck::decode(header, cursor).map(Packet::ConnAck),
+            PacketType::Publish => publish::Publish::decode(header, cursor).map(Packet::Publish),
+            PacketType::PubAck => only_packet_id(header, cursor).map(Packet::PubAck),
+            PacketType::PubRec => only_packet_id(header, cursor).map(Packet::PubRec),
+            PacketType::PubRel => only_packet_id(header, cursor).map(Packet::PubRel),
+            PacketType::PubComp => only_packet_id(header, cursor).map(Packet::PubComp),
+            PacketType::Subscribe => subscribe::Subscribe::decode(header, cursor).map(Packet::Subscribe),
+            PacketType::SubAck => subscribe::SubAck::decode(header, cursor).map(Packet::SubAck),
+            PacketType::Unsubscribe => unsubscribe::Unsubscribe::decode(header, cursor).map(Packet::Unsubscribe),
+            PacketType::UnsubAck => only_packet_id(header, cursor).map(Packet::UnsubAck),
+            PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
+            PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
+            PacketType::Disconnect => cursor.expect_empty().map(|_| Packet::Disconnect),
+        }
+    }
 }
 
 #[repr(u8)]
@@ -63,6 +86,13 @@ impl encode::Encode for QoS {
     }
 }
 
+impl<'buf> decode::Decode<'buf> for QoS {
+    fn decode<'cursor>(header: &FixedHeader, cursor: &'cursor mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
+        let byte = cursor.read_u8()?;
+        Self::try_from(byte)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(u16);
 
@@ -82,11 +112,12 @@ impl TryFrom<&[u8]> for PacketId {
     type Error = crate::Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() != 2 {
-            return Err(crate::Error::MalformedPacket);
-        }
+        let mut cursor = decode::Cursor::new(bytes);
+        let res = cursor.read_u16()?;
 
-        Self::try_from(parse_u16(bytes, &mut 0)?)
+        cursor.expect_empty()?;
+
+        Self::try_from(res)
     }
 }
 
@@ -97,85 +128,14 @@ impl encode::Encode for PacketId {
     }
 }
 
-fn parse<'a>(header: FixedHeader, body: &'a [u8]) -> Result<Packet<'a>, crate::Error> {
-    if header.remaining_len as usize != body.len() {
-        return Err(crate::Error::MalformedPacket);
-    }
-
-    match header.packet_type {
-        PacketType::Connect => connect::parse(body).map(Packet::Connect),
-        PacketType::ConnAck => connect::parse_connack(body).map(Packet::ConnAck),
-        PacketType::Publish => publish::parse(header.flags, body).map(Packet::Publish),
-        PacketType::PubAck => only_packet_id(body).map(Packet::PubAck),
-        PacketType::PubRec => only_packet_id(body).map(Packet::PubRec),
-        PacketType::PubRel => only_packet_id(body).map(Packet::PubRel),
-        PacketType::PubComp => only_packet_id(body).map(Packet::PubComp),
-        PacketType::Subscribe => subscribe::parse(body).map(Packet::Subscribe),
-        PacketType::SubAck => subscribe::parse_suback(&body).map(Packet::SubAck),
-        PacketType::Unsubscribe => unsubscribe::parse(body).map(Packet::Unsubscribe),
-        PacketType::UnsubAck => only_packet_id(body).map(Packet::UnsubAck),
-        PacketType::PingReq => expect_body_len(body, 0).map(|_| Packet::PingReq),
-        PacketType::PingResp => expect_body_len(body, 0).map(|_| Packet::PingResp),
-        PacketType::Disconnect => expect_body_len(body, 0).map(|_| Packet::Disconnect),
+impl <'a>decode::Decode<'a> for PacketId {
+    fn decode(header: &FixedHeader, cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
+        Self::try_from(cursor.read_u16()?)
     }
 }
 
-fn expect_body_len(body: &[u8], len: usize) -> Result<(), crate::Error> {
-    if body.len() == len {
-        return Ok(());
-    }
-
-    Err(crate::Error::MalformedPacket)
-}
-
-fn parse_u16(body: &[u8], offset: &mut usize) -> Result<u16, crate::Error> {
-    let bytes = get_bytes(body, offset)(2)?;
-    Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
-}
-
-fn parse_binary_data<'a, 'b>(
-    body: &'a [u8],
-    offset: &'b mut usize,
-) -> Result<&'a [u8], crate::Error> {
-    let len = parse_u16(body, offset)? as usize;
-
-    if body.len() < *offset + len {
-        return Err(crate::Error::MalformedPacket);
-    }
-
-    Ok(&body[*offset..*offset + len])
-}
-
-fn only_packet_id(body: &[u8]) -> Result<PacketId, crate::Error> {
-    let len = 2;
-    expect_body_len(body, len)?;
-
-    let packet_id = parse_packet_id(body, &mut 0)?;
+fn only_packet_id(header: &FixedHeader, cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
+    let packet_id = PacketId::decode(header, cursor)?;
+    cursor.expect_empty()?;
     Ok(packet_id)
-}
-
-fn parse_packet_id<'a>(body: &[u8], offset: &'a mut usize) -> Result<PacketId, crate::Error> {
-    let len = 2;
-    let bytes = get_bytes(body, offset)(len)?;
-    PacketId::try_from(bytes)
-}
-
-fn parse_utf8_str<'a, 'b>(body: &'a [u8], offset: &'b mut usize) -> Result<&'a str, crate::Error> {
-    let len = parse_u16(body, offset)? as usize;
-    core::str::from_utf8(get_bytes(body, offset)(len)?).map_err(|_| crate::Error::InvalidUtf8)
-}
-
-fn get_bytes<'a, 'b>(
-    body: &'a [u8],
-    offset: &'b mut usize,
-) -> impl FnMut(usize) -> Result<&'a [u8], crate::Error> {
-    |len: usize| {
-        if body.len() < *offset + len {
-            return Err(crate::Error::MalformedPacket);
-        }
-
-        let prev_offset = *offset;
-        *offset += len;
-        Ok(&body[prev_offset..*offset])
-    }
-}
+}   

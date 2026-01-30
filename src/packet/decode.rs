@@ -1,10 +1,13 @@
 use crate::protocol::FixedHeader;
 
-pub trait Decode<'a>: Sized {
-    fn decode(header: FixedHeader, body: &'a [u8]) -> Result<Self, crate::Error>;
+pub trait Decode<'buf>: Sized {
+    fn decode<'cursor>(
+        header: &FixedHeader,
+        cursor: &'cursor mut Cursor<'buf>,
+    ) -> Result<Self, crate::Error>;
 }
 
-pub(super) struct Cursor<'a> {
+pub struct Cursor<'a> {
     buf: &'a [u8],
     pos: usize,
 }
@@ -38,6 +41,11 @@ impl<'a> Cursor<'a> {
         Ok(res)
     }
 
+    pub fn read_binary_chunk(&mut self) -> Result<&'a [u8], crate::Error> {
+        let len = self.read_u16()? as usize;
+        self.read_bytes(len)
+    }
+
     pub fn read_utf8(&mut self) -> Result<&'a str, crate::Error> {
         let len = self.read_u16()? as usize;
         let bytes = self.read_bytes(len)?;
@@ -53,11 +61,19 @@ impl<'a> Cursor<'a> {
         self.remaining() == 0
     }
 
-    fn ensure_remaining(&self, n: usize) -> Result<(), crate::Error> {
-        if self.remaining() >= n {
-            return Ok(());
+    pub fn expect_empty(&self) -> Result<(), crate::Error> {
+        if !self.is_empty() {
+            Err(crate::Error::MalformedPacket)
+        } else {
+            Ok(())
         }
+    }
 
-        Err(crate::Error::UnexpectedEof)
+    fn ensure_remaining(&self, n: usize) -> Result<(), crate::Error> {
+        if self.remaining() < n {
+            Err(crate::Error::UnexpectedEof)
+        } else {
+            Ok(())
+        }
     }
 }
