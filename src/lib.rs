@@ -16,4 +16,5 @@ pub enum Error {
     InvalidQoS,
     InvalidUtf8,
     EncodeNotImplemented,
+    UnexpectedEof,
 }

@@ -8,10 +8,11 @@ use crate::{
 };
 
 pub mod connect;
+pub mod decode;
+pub mod encode;
 pub mod publish;
 pub mod subscribe;
 pub mod unsubscribe;
-pub mod encode;
 
 const SUBSCRIBE_ID: u8 = 0b10000010;
 
