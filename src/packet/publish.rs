@@ -29,10 +29,10 @@ impl TryFrom<u8> for Flags {
 }
 
 impl<'a> encode::Encode for Publish<'a> {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        self.topic.encode(out)?;
-        self.packet_id.map(|id| id.0).unwrap_or(0).encode(out)?;
-        self.payload.encode(out)?;
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        self.topic.encode(cursor)?;
+        self.packet_id.map(|id| id.0).unwrap_or(0).encode(cursor)?;
+        self.payload.encode(cursor)?;
 
         Ok(())
     }

@@ -3,7 +3,7 @@ use heapless::Vec;
 use crate::{
     packet::{
         PacketId, QoS, SUBSCRIBE_ID, decode,
-        encode::{self, is_full},
+        encode::{self, RequiredSize, is_full},
     },
     protocol::FixedHeader,
 };
@@ -14,13 +14,15 @@ pub struct Subscribe<'a, const N: usize = 16> {
 }
 
 impl<'a, const P: usize> encode::Encode for Subscribe<'a, P> {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        let mut body: Vec<u8, N> = Vec::new();
-        self.packet_id.encode(&mut body)?;
-        self.topics.encode(&mut body)?;
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        cursor.write_u8(SUBSCRIBE_ID)?;
+        encode::remaining_length(self.required_space(), cursor)?;
+        self.packet_id.encode(cursor)?;
 
-        out.push(SUBSCRIBE_ID).map_err(is_full)?;
-        body.encode(out)?;
+        for topic in &self.topics {
+            topic.encode(cursor)?;
+        }
+
         Ok(())
     }
 }
@@ -51,16 +53,27 @@ impl<'buf, const P: usize> decode::Decode<'buf> for Subscribe<'buf, P> {
     }
 }
 
+impl<'a, const P: usize> RequiredSize for Subscribe<'a, P> {
+    fn required_space(&self) -> usize {
+        let mut required_space = self.packet_id.required_space();
+
+        for topic in &self.topics {
+            required_space += topic.required_space();
+        }
+
+        required_space
+    }
+}
+
 pub struct Subscription<'a> {
     pub topic_filter: &'a str,
     pub qos: QoS,
 }
 
 impl<'a> encode::Encode for Subscription<'a> {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        self.topic_filter.encode(out)?;
-        self.qos.encode(out)?;
-        Ok(())
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        self.topic_filter.encode(cursor)?;
+        self.qos.encode(cursor)
     }
 }
 
@@ -69,26 +82,30 @@ pub struct SubAck<const N: usize = 16> {
     pub return_codes: Vec<SubAckReturnCode, N>,
 }
 
-impl <'buf, const P: usize> decode::Decode<'buf> for SubAck<P> {
+impl<'a> encode::RequiredSize for Subscription<'a> {
+    fn required_space(&self) -> usize {
+        self.topic_filter.required_space() + self.qos.required_space()
+    }
+}
+impl<'buf, const P: usize> decode::Decode<'buf> for SubAck<P> {
     fn decode<'cursor>(
         header: &FixedHeader,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
+        let packet_id = PacketId::decode(header, cursor)?;
+        let mut return_codes = Vec::<SubAckReturnCode, P>::new();
 
-    let packet_id = PacketId::decode(header, cursor)?;
-    let mut return_codes = Vec::<SubAckReturnCode, P>::new();
+        while !cursor.is_empty() {
+            let code = SubAckReturnCode::try_from(cursor.read_u8()?)?;
+            return_codes
+                .push(code)
+                .map_err(|_| crate::Error::VectorIsFull)?;
+        }
 
-    while !cursor.is_empty() {
-        let code = SubAckReturnCode::try_from(cursor.read_u8()?)?;
-        return_codes
-            .push(code)
-            .map_err(|_| crate::Error::VectorIsFull)?;
-    }
-
-    Ok(SubAck {
-        packet_id,
-        return_codes,
-    })
+        Ok(SubAck {
+            packet_id,
+            return_codes,
+        })
     }
 }
 
@@ -118,12 +135,19 @@ impl TryFrom<u8> for SubAckReturnCode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{packet::decode::{Cursor, Decode}, protocol::PacketType};
+    use crate::{
+        packet::decode::{Cursor, Decode},
+        protocol::PacketType,
+    };
 
     use super::*;
 
     fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> {
-        let header = FixedHeader {flags: 0, packet_type: PacketType::SubAck, remaining_len: 0};
+        let header = FixedHeader {
+            flags: 0,
+            packet_type: PacketType::SubAck,
+            remaining_len: 0,
+        };
         SubAck::<N>::decode(&header, &mut Cursor::new(&body))
     }
 

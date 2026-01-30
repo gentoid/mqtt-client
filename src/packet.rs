@@ -2,7 +2,6 @@ use crate::{
     packet::{
         connect::{ConnAck, Connect},
         decode::Decode,
-        encode::empty_body,
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
@@ -40,15 +39,15 @@ pub enum Packet<'a> {
 }
 
 impl encode::Encode for Packet<'_> {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         match self {
             Self::Connect(_) => todo!(),
-            Self::Publish(packet) => packet.encode(out),
-            Self::Subscribe(packet) => packet.encode(out),
-            Self::Unsubscribe(packet) => packet.encode(out),
-            Self::PingReq => empty_body(out, PING_REQ_ID),
-            Self::PingResp => empty_body(out, PING_RESP_ID),
-            Self::Disconnect => empty_body(out, DISCONNECT_ID),
+            Self::Publish(packet) => packet.encode(cursor),
+            Self::Subscribe(packet) => packet.encode(cursor),
+            Self::Unsubscribe(packet) => packet.encode(cursor),
+            // Self::PingReq => empty_body(cursor, PING_REQ_ID),
+            // Self::PingResp => empty_body(cursor, PING_RESP_ID),
+            // Self::Disconnect => empty_body(cursor, DISCONNECT_ID),
             _ => Err(crate::Error::EncodeNotImplemented),
         }
     }
@@ -110,8 +109,8 @@ impl TryFrom<u8> for QoS {
 }
 
 impl encode::Encode for QoS {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        (*self as u8).encode(out)?;
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        (*self as u8).encode(cursor)?;
         Ok(())
     }
 }
@@ -126,6 +125,11 @@ impl<'buf> decode::Decode<'buf> for QoS {
     }
 }
 
+impl encode::RequiredSize for QoS {
+    fn required_space(&self) -> usize {
+        1
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(u16);
 
@@ -155,8 +159,8 @@ impl TryFrom<&[u8]> for PacketId {
 }
 
 impl encode::Encode for PacketId {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        self.0.encode(out)?;
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        self.0.encode(cursor)?;
         Ok(())
     }
 }
@@ -164,6 +168,12 @@ impl encode::Encode for PacketId {
 impl<'a> decode::Decode<'a> for PacketId {
     fn decode(header: &FixedHeader, cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
         Self::try_from(cursor.read_u16()?)
+    }
+}
+
+impl encode::RequiredSize for PacketId {
+    fn required_space(&self) -> usize {
+        2
     }
 }
 

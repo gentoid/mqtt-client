@@ -14,9 +14,9 @@ pub struct Unsubscribe<'a, const N: usize = 16> {
 }
 
 impl<'a, const P: usize> encode::Encode for Unsubscribe<'a, P> {
-    fn encode<const N: usize>(&self, out: &mut heapless::Vec<u8, N>) -> Result<(), crate::Error> {
-        self.packet_id.encode(out)?;
-        self.topics.encode(out)?;
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        self.packet_id.encode(cursor)?;
+        // self.topics.encode(cursor)?;
 
         Ok(())
     }
