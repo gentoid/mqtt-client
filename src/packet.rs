@@ -2,6 +2,7 @@ use crate::{
     packet::{
         connect::{ConnAck, Connect},
         decode::{Decode, DecodePacket},
+        encode::{Encode, EncodePacket},
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
@@ -14,12 +15,6 @@ pub mod encode;
 pub mod publish;
 pub mod subscribe;
 pub mod unsubscribe;
-
-const SUBSCRIBE_ID: u8 = 0b10000010;
-// const UNSUBSCRIBE_ID: u8 = ...;
-const PING_REQ_ID: u8 = 0b1100_0000;
-const PING_RESP_ID: u8 = 0b1101_0000;
-const DISCONNECT_ID: u8 = 0b1110_0000;
 
 pub enum Packet<'a> {
     Connect(Connect<'a>),
@@ -38,22 +33,20 @@ pub enum Packet<'a> {
     Disconnect,
 }
 
-impl encode::Encode for Packet<'_> {
+impl<'buf> Packet<'buf> {
     fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         match self {
             Self::Connect(_) => todo!(),
-            Self::Publish(packet) => packet.encode(cursor),
-            Self::Subscribe(packet) => packet.encode(cursor),
-            Self::Unsubscribe(packet) => packet.encode(cursor),
-            // Self::PingReq => empty_body(cursor, PING_REQ_ID),
-            // Self::PingResp => empty_body(cursor, PING_RESP_ID),
-            // Self::Disconnect => empty_body(cursor, DISCONNECT_ID),
+            Self::Publish(packet) => packet.encode_body(cursor),
+            Self::Subscribe(packet) => packet.encode_body(cursor),
+            Self::Unsubscribe(packet) => packet.encode_body(cursor),
+            Self::PingReq => empty_body(cursor, PacketType::PingReq),
+            Self::PingResp => empty_body(cursor, PacketType::PingResp),
+            Self::Disconnect => empty_body(cursor, PacketType::Disconnect),
             _ => Err(crate::Error::EncodeNotImplemented),
         }
     }
-}
 
-impl<'buf> Packet<'buf> {
     fn decode<'cursor>(
         header: &FixedHeader,
         cursor: &'cursor mut decode::Cursor<'buf>,
@@ -88,8 +81,20 @@ impl<'buf> Packet<'buf> {
     }
 }
 
+fn encode_packet<P: encode::EncodePacket>(
+    packet: P,
+    cursor: &mut encode::Cursor<'_>,
+) -> Result<(), crate::Error> {
+    let header = ((P::PACKET_TYPE as u8) << 4) | (packet.flags() & 0x0F);
+    cursor.write_u8(header)?;
+
+    encode::remaining_length(packet.required_space(), cursor)?;
+
+    packet.encode_body(cursor)
+}
+
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum QoS {
     AtMostOnce = 0,
     AtLeastOnce = 1,
@@ -116,18 +121,16 @@ impl encode::Encode for QoS {
         (*self as u8).encode(cursor)?;
         Ok(())
     }
+
+    fn required_space(&self) -> usize {
+        1
+    }
 }
 
 impl<'buf> decode::Decode<'buf> for QoS {
     fn decode<'cursor>(cursor: &'cursor mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
         let byte = cursor.read_u8()?;
         Self::try_from(byte)
-    }
-}
-
-impl encode::RequiredSize for QoS {
-    fn required_space(&self) -> usize {
-        1
     }
 }
 
@@ -164,6 +167,10 @@ impl encode::Encode for PacketId {
         self.0.encode(cursor)?;
         Ok(())
     }
+
+    fn required_space(&self) -> usize {
+        2
+    }
 }
 
 impl<'buf> decode::Decode<'buf> for PacketId {
@@ -172,14 +179,18 @@ impl<'buf> decode::Decode<'buf> for PacketId {
     }
 }
 
-impl encode::RequiredSize for PacketId {
-    fn required_space(&self) -> usize {
-        2
-    }
-}
-
 fn only_packet_id(cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
     let packet_id = PacketId::decode(cursor)?;
     cursor.expect_empty()?;
     Ok(packet_id)
+}
+
+pub(super) fn empty_body(
+    cursor: &mut encode::Cursor,
+    packet_type: PacketType,
+) -> Result<(), crate::Error> {
+    let header = ((packet_type as u8) << 4) | 0b0010;
+
+    header.encode(cursor)?;
+    0u8.encode(cursor)
 }

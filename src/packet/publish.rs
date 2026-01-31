@@ -1,7 +1,10 @@
-use crate::packet::{
-    PacketId, QoS,
-    decode::{self, Decode},
-    encode::{self, is_full},
+use crate::{
+    packet::{
+        PacketId, QoS,
+        decode::{self, Decode},
+        encode::{self, Encode, is_full},
+    },
+    protocol::PacketType,
 };
 
 pub struct Publish<'a> {
@@ -29,13 +32,31 @@ impl TryFrom<u8> for Flags {
     }
 }
 
-impl<'a> encode::Encode for Publish<'a> {
-    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+impl From<&Flags> for u8 {
+    fn from(value: &Flags) -> Self {
+        (value.dup as u8) << 3 | (value.qos as u8) << 1 | (value.retain as u8)
+    }
+}
+
+impl<'a> encode::EncodePacket for Publish<'a> {
+    const PACKET_TYPE: PacketType = PacketType::Publish;
+
+    fn encode_body(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         self.topic.encode(cursor)?;
         self.packet_id.map(|id| id.0).unwrap_or(0).encode(cursor)?;
         self.payload.encode(cursor)?;
 
         Ok(())
+    }
+
+    fn flags(&self) -> u8 {
+        (&self.flags).into()
+    }
+
+    fn required_space(&self) -> usize {
+        self.topic.required_space()
+            + self.packet_id.map(|id| id.0).unwrap_or(0).required_space()
+            + self.payload.required_space()
     }
 }
 

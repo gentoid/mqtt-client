@@ -1,7 +1,15 @@
-use crate::packet::{Packet, publish, subscribe, unsubscribe};
+use crate::{packet::{Packet, publish, subscribe, unsubscribe}, protocol};
+
+pub trait EncodePacket {
+    const PACKET_TYPE: protocol::PacketType;
+    fn flags(&self) -> u8;
+    fn required_space(&self) -> usize;
+    fn encode_body(&self, cursor: &mut Cursor) -> Result<(), crate::Error>;
+}
 
 pub trait Encode {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error>;
+    fn required_space(&self) -> usize;
 }
 
 pub trait RequiredSize {
@@ -97,15 +105,6 @@ impl<'buf> Cursor<'buf> {
     }
 }
 
-// pub(super) fn empty_body<const N: usize>(
-//     cursor: &mut Cursor,
-//     id: u8,
-// ) -> Result<(), crate::Error> {
-//     out.push(id).map_err(is_full)?;
-//     out.push(0).map_err(is_full)?;
-//     Ok(())
-// }
-
 pub(super) fn is_full<T>(_: T) -> crate::Error {
     crate::Error::VectorIsFull
 }
@@ -114,11 +113,19 @@ impl Encode for u16 {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
         cursor.write_u16(*self)
     }
+
+    fn required_space(&self) -> usize {
+        2
+    }
 }
 
 impl Encode for u8 {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
         cursor.write_u8(*self)
+    }
+
+    fn required_space(&self) -> usize {
+        1
     }
 }
 
@@ -126,26 +133,18 @@ impl Encode for &str {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
         cursor.write_utf8(&self)
     }
-}
-
-impl RequiredSize for &str {
+    
     fn required_space(&self) -> usize {
         self.as_bytes().len() + 2
     }
 }
 
-// impl<T: Encode, const P: usize> Encode for heapless::Vec<T, P> {
-//     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
-//         for item in self.as_slice() {
-//             item.encode(out)?;
-//         }
-
-//         Ok(())
-//     }
-// }
-
 impl Encode for &[u8] {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
         cursor.write_bytes(&self)
+    }
+
+    fn required_space(&self) -> usize {
+        self.len()
     }
 }

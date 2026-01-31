@@ -2,11 +2,9 @@ use heapless::Vec;
 
 use crate::{
     packet::{
-        PacketId, QoS, SUBSCRIBE_ID,
-        decode::{self, Decode},
-        encode::{self, RequiredSize, is_full},
+        self, PacketId, QoS, decode::{self, Decode}, encode::{self, Encode, RequiredSize, is_full}
     },
-    protocol::FixedHeader,
+    protocol::{FixedHeader, PacketType},
 };
 
 pub struct Subscribe<'a, const N: usize = 16> {
@@ -14,10 +12,24 @@ pub struct Subscribe<'a, const N: usize = 16> {
     pub topics: Vec<Subscription<'a>, N>,
 }
 
-impl<'a, const P: usize> encode::Encode for Subscribe<'a, P> {
-    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
-        cursor.write_u8(SUBSCRIBE_ID)?;
-        encode::remaining_length(self.required_space(), cursor)?;
+impl<'a, const P: usize> encode::EncodePacket for Subscribe<'a, P> {    
+    const PACKET_TYPE: PacketType = PacketType::Subscribe;
+
+    fn flags(&self) -> u8 {
+        0b0010
+    }
+    
+    fn required_space(&self) -> usize {
+        let mut required_space = self.packet_id.required_space();
+
+        for topic in &self.topics {
+            required_space += topic.required_space();
+        }
+
+        required_space
+    }
+    
+    fn encode_body(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         self.packet_id.encode(cursor)?;
 
         for topic in &self.topics {
@@ -54,18 +66,7 @@ impl<'buf, const P: usize> decode::DecodePacket<'buf> for Subscribe<'buf, P> {
     }
 }
 
-impl<'a, const P: usize> RequiredSize for Subscribe<'a, P> {
-    fn required_space(&self) -> usize {
-        let mut required_space = self.packet_id.required_space();
-
-        for topic in &self.topics {
-            required_space += topic.required_space();
-        }
-
-        required_space
-    }
-}
-
+#[derive(Debug)]
 pub struct Subscription<'a> {
     pub topic_filter: &'a str,
     pub qos: QoS,
@@ -76,17 +77,15 @@ impl<'a> encode::Encode for Subscription<'a> {
         self.topic_filter.encode(cursor)?;
         self.qos.encode(cursor)
     }
+
+    fn required_space(&self) -> usize {
+        self.topic_filter.required_space() + self.qos.required_space()
+    }
 }
 
 pub struct SubAck<const N: usize = 16> {
     pub(crate) packet_id: PacketId,
     pub return_codes: Vec<SubAckReturnCode, N>,
-}
-
-impl<'a> encode::RequiredSize for Subscription<'a> {
-    fn required_space(&self) -> usize {
-        self.topic_filter.required_space() + self.qos.required_space()
-    }
 }
 
 impl<'buf, const P: usize> decode::DecodePacket<'buf> for SubAck<P> {
