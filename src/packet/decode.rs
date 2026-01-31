@@ -1,10 +1,9 @@
-use crate::protocol::FixedHeader;
-
 pub trait Decode<'buf>: Sized {
-    fn decode<'cursor>(
-        header: &FixedHeader,
-        cursor: &'cursor mut Cursor<'buf>,
-    ) -> Result<Self, crate::Error>;
+    fn decode<'cursor>(cursor: &'cursor mut Cursor<'buf>) -> Result<Self, crate::Error>;
+}
+
+pub trait DecodePacket<'buf>: Sized {
+    fn decode<'cursor>(flags: u8, cursor: &'cursor mut Cursor<'buf>) -> Result<Self, crate::Error>;
 }
 
 pub struct Cursor<'a> {

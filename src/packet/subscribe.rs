@@ -2,7 +2,8 @@ use heapless::Vec;
 
 use crate::{
     packet::{
-        PacketId, QoS, SUBSCRIBE_ID, decode,
+        PacketId, QoS, SUBSCRIBE_ID,
+        decode::{self, Decode},
         encode::{self, RequiredSize, is_full},
     },
     protocol::FixedHeader,
@@ -27,18 +28,18 @@ impl<'a, const P: usize> encode::Encode for Subscribe<'a, P> {
     }
 }
 
-impl<'buf, const P: usize> decode::Decode<'buf> for Subscribe<'buf, P> {
+impl<'buf, const P: usize> decode::DecodePacket<'buf> for Subscribe<'buf, P> {
     fn decode<'cursor>(
-        header: &FixedHeader,
+        flags: u8,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
-        let packet_id = PacketId::decode(header, cursor)?;
+        let packet_id = PacketId::decode(cursor)?;
 
         let mut topics = Vec::<Subscription<'buf>, P>::new();
 
         while !cursor.is_empty() {
             let topic_filter = cursor.read_utf8()?;
-            let qos = QoS::decode(header, cursor)?;
+            let qos = QoS::decode(cursor)?;
 
             topics
                 .push(Subscription { topic_filter, qos })
@@ -87,12 +88,13 @@ impl<'a> encode::RequiredSize for Subscription<'a> {
         self.topic_filter.required_space() + self.qos.required_space()
     }
 }
-impl<'buf, const P: usize> decode::Decode<'buf> for SubAck<P> {
+
+impl<'buf, const P: usize> decode::DecodePacket<'buf> for SubAck<P> {
     fn decode<'cursor>(
-        header: &FixedHeader,
+        flags: u8,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
-        let packet_id = PacketId::decode(header, cursor)?;
+        let packet_id = PacketId::decode(cursor)?;
         let mut return_codes = Vec::<SubAckReturnCode, P>::new();
 
         while !cursor.is_empty() {
@@ -136,19 +138,14 @@ impl TryFrom<u8> for SubAckReturnCode {
 #[cfg(test)]
 mod tests {
     use crate::{
-        packet::decode::{Cursor, Decode},
+        packet::{Packet, decode::DecodePacket, encode::Encode},
         protocol::PacketType,
     };
 
     use super::*;
 
     fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> {
-        let header = FixedHeader {
-            flags: 0,
-            packet_type: PacketType::SubAck,
-            remaining_len: 0,
-        };
-        SubAck::<N>::decode(&header, &mut Cursor::new(&body))
+        SubAck::<N>::decode(0, &mut decode::Cursor::new(&body))
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::{
     packet::{
         connect::{ConnAck, Connect},
-        decode::Decode,
+        decode::{Decode, DecodePacket},
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
@@ -53,31 +53,34 @@ impl encode::Encode for Packet<'_> {
     }
 }
 
-impl<'a> decode::Decode<'a> for Packet<'a> {
+impl<'buf> Packet<'buf> {
     fn decode<'cursor>(
         header: &FixedHeader,
-        cursor: &'cursor mut decode::Cursor<'a>,
+        cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
+        // @todo this looks wrong
         if header.remaining_len as usize != cursor.remaining() {
             return Err(crate::Error::MalformedPacket);
         }
 
+        let flags = header.flags;
+
         match header.packet_type {
-            PacketType::Connect => connect::Connect::decode(header, cursor).map(Packet::Connect),
-            PacketType::ConnAck => connect::ConnAck::decode(header, cursor).map(Packet::ConnAck),
-            PacketType::Publish => publish::Publish::decode(header, cursor).map(Packet::Publish),
-            PacketType::PubAck => only_packet_id(header, cursor).map(Packet::PubAck),
-            PacketType::PubRec => only_packet_id(header, cursor).map(Packet::PubRec),
-            PacketType::PubRel => only_packet_id(header, cursor).map(Packet::PubRel),
-            PacketType::PubComp => only_packet_id(header, cursor).map(Packet::PubComp),
+            PacketType::Connect => connect::Connect::decode(flags, cursor).map(Packet::Connect),
+            PacketType::ConnAck => connect::ConnAck::decode(flags, cursor).map(Packet::ConnAck),
+            PacketType::Publish => publish::Publish::decode(flags, cursor).map(Packet::Publish),
+            PacketType::PubAck => only_packet_id(cursor).map(Packet::PubAck),
+            PacketType::PubRec => only_packet_id(cursor).map(Packet::PubRec),
+            PacketType::PubRel => only_packet_id(cursor).map(Packet::PubRel),
+            PacketType::PubComp => only_packet_id(cursor).map(Packet::PubComp),
             PacketType::Subscribe => {
-                subscribe::Subscribe::decode(header, cursor).map(Packet::Subscribe)
+                subscribe::Subscribe::decode(flags, cursor).map(Packet::Subscribe)
             }
-            PacketType::SubAck => subscribe::SubAck::decode(header, cursor).map(Packet::SubAck),
+            PacketType::SubAck => subscribe::SubAck::decode(flags, cursor).map(Packet::SubAck),
             PacketType::Unsubscribe => {
-                unsubscribe::Unsubscribe::decode(header, cursor).map(Packet::Unsubscribe)
+                unsubscribe::Unsubscribe::decode(flags, cursor).map(Packet::Unsubscribe)
             }
-            PacketType::UnsubAck => only_packet_id(header, cursor).map(Packet::UnsubAck),
+            PacketType::UnsubAck => only_packet_id(cursor).map(Packet::UnsubAck),
             PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
             PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
             PacketType::Disconnect => cursor.expect_empty().map(|_| Packet::Disconnect),
@@ -116,10 +119,7 @@ impl encode::Encode for QoS {
 }
 
 impl<'buf> decode::Decode<'buf> for QoS {
-    fn decode<'cursor>(
-        header: &FixedHeader,
-        cursor: &'cursor mut decode::Cursor<'buf>,
-    ) -> Result<Self, crate::Error> {
+    fn decode<'cursor>(cursor: &'cursor mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
         let byte = cursor.read_u8()?;
         Self::try_from(byte)
     }
@@ -130,6 +130,7 @@ impl encode::RequiredSize for QoS {
         1
     }
 }
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(u16);
 
@@ -165,8 +166,8 @@ impl encode::Encode for PacketId {
     }
 }
 
-impl<'a> decode::Decode<'a> for PacketId {
-    fn decode(header: &FixedHeader, cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
+impl<'buf> decode::Decode<'buf> for PacketId {
+    fn decode(cursor: &mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
         Self::try_from(cursor.read_u16()?)
     }
 }
@@ -177,11 +178,8 @@ impl encode::RequiredSize for PacketId {
     }
 }
 
-fn only_packet_id(
-    header: &FixedHeader,
-    cursor: &mut decode::Cursor<'_>,
-) -> Result<PacketId, crate::Error> {
-    let packet_id = PacketId::decode(header, cursor)?;
+fn only_packet_id(cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
+    let packet_id = PacketId::decode(cursor)?;
     cursor.expect_empty()?;
     Ok(packet_id)
 }

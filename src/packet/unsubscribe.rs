@@ -2,7 +2,7 @@ use heapless::Vec;
 
 use crate::{
     packet::{
-        Packet, PacketId, decode,
+        Packet, PacketId, decode::{self, Decode},
         encode::{self, is_full},
     },
     protocol::FixedHeader,
@@ -22,12 +22,12 @@ impl<'a, const P: usize> encode::Encode for Unsubscribe<'a, P> {
     }
 }
 
-impl<'buf, const P: usize> decode::Decode<'buf> for Unsubscribe<'buf, P> {
+impl<'buf, const P: usize> decode::DecodePacket<'buf> for Unsubscribe<'buf, P> {
     fn decode<'cursor>(
-        header: &FixedHeader,
+        flags: u8,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
-        let packet_id = PacketId::decode(header, cursor)?;
+        let packet_id = PacketId::decode(cursor)?;
 
         let mut topics = Vec::new();
 

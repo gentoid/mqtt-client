@@ -1,7 +1,4 @@
-use crate::{
-    packet::{QoS, decode},
-    protocol::FixedHeader,
-};
+use crate::packet::{QoS, decode};
 
 pub struct Connect<'a> {
     pub clean_session: bool,
@@ -12,9 +9,9 @@ pub struct Connect<'a> {
     pub password: Option<&'a [u8]>,
 }
 
-impl<'buf> decode::Decode<'buf> for Connect<'buf> {
+impl<'buf> decode::DecodePacket<'buf> for Connect<'buf> {
     fn decode<'cursor>(
-        header: &FixedHeader,
+        flags: u8,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
         let protocol_name = cursor.read_utf8()?;
@@ -90,9 +87,9 @@ pub struct ConnAck {
     pub return_code: ConnectReturnCode,
 }
 
-impl<'buf> decode::Decode<'buf> for ConnAck {
+impl<'buf> decode::DecodePacket<'buf> for ConnAck {
     fn decode<'cursor>(
-        header: &FixedHeader,
+        flags: u8,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
         let flags = cursor.read_u8()?;
@@ -145,7 +142,7 @@ impl TryFrom<u8> for ConnectReturnCode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{packet::decode::Decode, protocol::PacketType};
+    use crate::{packet::decode::DecodePacket, protocol::PacketType};
 
     use super::*;
 
@@ -153,15 +150,7 @@ mod tests {
     fn connack_accepted() {
         let body = [0x00, 0x00];
         let mut cursor = decode::Cursor::new(&body);
-        let packet = ConnAck::decode(
-            &FixedHeader {
-                flags: 0,
-                packet_type: PacketType::Connect,
-                remaining_len: 0,
-            },
-            &mut cursor,
-        )
-        .unwrap();
+        let packet = ConnAck::decode(0, &mut cursor).unwrap();
 
         assert!(matches!(
             packet,
@@ -176,16 +165,6 @@ mod tests {
     fn connack_invalid_flags() {
         let body = [0b0000_0010, 0x00];
         let mut cursor = decode::Cursor::new(&body);
-        assert!(
-            ConnAck::decode(
-                &FixedHeader {
-                    flags: 0,
-                    packet_type: PacketType::Connect,
-                    remaining_len: 0,
-                },
-                &mut cursor
-            )
-            .is_err()
-        );
+        assert!(ConnAck::decode(0, &mut cursor).is_err());
     }
 }

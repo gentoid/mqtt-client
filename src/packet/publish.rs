@@ -1,7 +1,8 @@
-use crate::{packet::{
-    PacketId, QoS, decode,
+use crate::packet::{
+    PacketId, QoS,
+    decode::{self, Decode},
     encode::{self, is_full},
-}, protocol::FixedHeader};
+};
 
 pub struct Publish<'a> {
     pub flags: Flags,
@@ -38,12 +39,12 @@ impl<'a> encode::Encode for Publish<'a> {
     }
 }
 
-impl<'buf> decode::Decode<'buf> for Publish<'buf> {
+impl<'buf> decode::DecodePacket<'buf> for Publish<'buf> {
     fn decode<'cursor>(
-        header: &FixedHeader,
+        flags: u8,
         cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
-        let flags = Flags::try_from(header.flags)?;
+        let flags = Flags::try_from(flags)?;
 
         let mut offset = 0;
 
@@ -53,7 +54,7 @@ impl<'buf> decode::Decode<'buf> for Publish<'buf> {
         let packet_id = if let QoS::AtMostOnce = flags.qos {
             None
         } else {
-            let packet_id = PacketId::decode(header, cursor)?;
+            let packet_id = PacketId::decode(cursor)?;
 
             Some(packet_id)
         };
@@ -71,7 +72,7 @@ impl<'buf> decode::Decode<'buf> for Publish<'buf> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{packet::decode::Decode, protocol::{FixedHeader, PacketType}};
+    use crate::{packet::decode::DecodePacket, protocol::PacketType};
 
     use super::*;
 
@@ -82,13 +83,7 @@ mod tests {
             0x00, 0x05, b't', b'o', b'p', b'i', b'c', b'p', b'a', b'y', b'l', b'o', b'a', b'd',
         ];
         let mut cursor = decode::Cursor::new(&body);
-        let header = FixedHeader {
-            flags,
-            remaining_len: 0,
-            packet_type: PacketType::Publish,
-        };
-
-        let packet = Publish::decode(&header, &mut cursor).unwrap();
+        let packet = Publish::decode(0, &mut cursor).unwrap();
 
         assert!(matches!(
             packet.flags,
