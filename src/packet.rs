@@ -36,7 +36,7 @@ pub enum Packet<'a> {
 impl<'buf> Packet<'buf> {
     fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         match self {
-            Self::Connect(_) => todo!(),
+            Self::Connect(packet) => encode_packet(packet, cursor),
             Self::Publish(packet) => encode_packet(packet, cursor),
             Self::Subscribe(packet) => encode_packet(packet, cursor),
             Self::Unsubscribe(packet) => encode_packet(packet, cursor),

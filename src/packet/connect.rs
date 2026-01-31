@@ -1,4 +1,10 @@
-use crate::packet::{QoS, decode};
+use crate::{
+    packet::{
+        QoS, decode,
+        encode::{self, Encode},
+    },
+    protocol::PacketType,
+};
 
 pub struct Connect<'a> {
     pub clean_session: bool,
@@ -72,6 +78,69 @@ impl<'buf> decode::DecodePacket<'buf> for Connect<'buf> {
             username,
             password,
         })
+    }
+}
+
+impl<'buf> encode::EncodePacket for &Connect<'buf> {
+    const PACKET_TYPE: PacketType = PacketType::Connect;
+
+    fn flags(&self) -> u8 {
+        0
+    }
+
+    fn required_space(&self) -> usize {
+        let mut required = "MQTT".required_space()
+            + 4u8.required_space()
+            + 0u8.required_space()
+            + self.keep_alive.required_space()
+            + self.client_id.required_space();
+
+            
+        if let Some(will) = &self.will {
+            required += will.topic.required_space();
+            required += will.payload.required_space();
+        }
+
+        if let Some(username) = self.username {
+            required += username.required_space();
+        }
+
+        if let Some(password) = self.password {
+            required += password.required_space();
+        }
+
+        required
+    }
+
+    fn encode_body(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        "MQTT".encode(cursor)?;
+        4u8.encode(cursor)?;
+
+        let flags = (self.username.is_some() as u8) << 7
+            | (self.password.is_some() as u8) << 6
+            | (self.will.as_ref().map(|w| w.retain).unwrap_or(false) as u8) << 5
+            | self.will.as_ref().map(|w| w.qos as u8).unwrap_or(0) << 3 // 2 bits
+            | (self.will.is_some() as u8) << 2
+            | (self.clean_session as u8) << 1;
+
+        flags.encode(cursor)?;
+        self.keep_alive.encode(cursor)?;
+        self.client_id.encode(cursor)?;
+
+        if let Some(will) = &self.will {
+            will.topic.encode(cursor)?;
+            will.payload.encode(cursor)?;
+        }
+
+        if let Some(username) = self.username {
+            username.encode(cursor)?;
+        }
+
+        if let Some(password) = self.password {
+            password.encode(cursor)?;
+        }
+
+        Ok(())
     }
 }
 
