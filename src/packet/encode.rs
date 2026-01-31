@@ -52,6 +52,10 @@ impl<'buf> Cursor<'buf> {
         Self { buf, pos: 0 }
     }
 
+    pub fn written(&self) -> &[u8] {
+        &self.buf[..self.pos]
+    }
+
     pub fn write_u8(&mut self, byte: u8) -> Result<(), crate::Error> {
         self.ensure_remaining(1)?;
         self.buf[self.pos] = byte;

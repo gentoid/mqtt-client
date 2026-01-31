@@ -20,7 +20,7 @@ impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
     fn flags(&self) -> u8 {
         0b0010
     }
-    
+
     fn required_space(&self) -> usize {
         let mut required_space = self.packet_id.required_space();
 
@@ -30,7 +30,7 @@ impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
 
         required_space
     }
-    
+
     fn encode_body(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         self.packet_id.encode(cursor)?;
 
@@ -139,7 +139,11 @@ impl TryFrom<u8> for SubAckReturnCode {
 #[cfg(test)]
 mod tests {
     use crate::{
-        packet::{Packet, decode::DecodePacket, encode::Encode},
+        packet::{
+            Packet,
+            decode::DecodePacket,
+            encode::{Encode, EncodePacket},
+        },
         protocol::PacketType,
     };
 
@@ -167,5 +171,32 @@ mod tests {
     fn suback_invalid_return_code() {
         let body = [0x00, 0x10, 0x05];
         assert!(parse_suback::<1>(&body).is_err());
+    }
+
+    fn make_subscribe<'a, const N: usize>() -> Subscribe<'a, N> {
+        let mut topics: Vec<Subscription, N> = Vec::new();
+        topics
+            .push(Subscription {
+                topic_filter: "a/b",
+                qos: QoS::AtLeastOnce,
+            })
+            .unwrap();
+        Subscribe {
+            packet_id: PacketId(10),
+            topics,
+        }
+    }
+
+    #[test]
+    fn encode_subscribe_single_topic() {
+        let packet = make_subscribe::<'_, 1>();
+        let mut buf = [0u8; 32];
+        let mut cursor = encode::Cursor::new(&mut buf);
+
+        (&packet).encode_body(&mut cursor).unwrap();
+
+        let encoded = cursor.written();
+
+        assert_eq!(encoded, &[0x00, 0x0A, 0x00, 0x03, b'a', b'/', b'b', 0x01]);
     }
 }
