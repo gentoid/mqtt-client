@@ -38,7 +38,7 @@ impl From<&Flags> for u8 {
     }
 }
 
-impl<'a> encode::EncodePacket for Publish<'a> {
+impl<'a> encode::EncodePacket for &Publish<'a> {
     const PACKET_TYPE: PacketType = PacketType::Publish;
 
     fn encode_body(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {

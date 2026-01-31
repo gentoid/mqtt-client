@@ -2,7 +2,9 @@ use heapless::Vec;
 
 use crate::{
     packet::{
-        self, PacketId, QoS, decode::{self, Decode}, encode::{self, Encode, RequiredSize, is_full}
+        self, PacketId, QoS,
+        decode::{self, Decode},
+        encode::{self, Encode, RequiredSize, is_full},
     },
     protocol::{FixedHeader, PacketType},
 };
@@ -12,7 +14,7 @@ pub struct Subscribe<'a, const N: usize = 16> {
     pub topics: Vec<Subscription<'a>, N>,
 }
 
-impl<'a, const P: usize> encode::EncodePacket for Subscribe<'a, P> {    
+impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
     const PACKET_TYPE: PacketType = PacketType::Subscribe;
 
     fn flags(&self) -> u8 {

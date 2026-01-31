@@ -37,9 +37,9 @@ impl<'buf> Packet<'buf> {
     fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         match self {
             Self::Connect(_) => todo!(),
-            Self::Publish(packet) => packet.encode_body(cursor),
-            Self::Subscribe(packet) => packet.encode_body(cursor),
-            Self::Unsubscribe(packet) => packet.encode_body(cursor),
+            Self::Publish(packet) => encode_packet(packet, cursor),
+            Self::Subscribe(packet) => encode_packet(packet, cursor),
+            Self::Unsubscribe(packet) => encode_packet(packet, cursor),
             Self::PingReq => empty_body(cursor, PacketType::PingReq),
             Self::PingResp => empty_body(cursor, PacketType::PingResp),
             Self::Disconnect => empty_body(cursor, PacketType::Disconnect),

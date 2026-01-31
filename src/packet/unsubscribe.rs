@@ -13,7 +13,7 @@ pub struct Unsubscribe<'a, const N: usize = 16> {
     pub topics: Vec<&'a str, N>,
 }
 
-impl<'a, const P: usize> encode::EncodePacket for Unsubscribe<'a, P> {
+impl<'a, const P: usize> encode::EncodePacket for &Unsubscribe<'a, P> {
     const PACKET_TYPE: PacketType = PacketType::Unsubscribe;
 
     fn flags(&self) -> u8 {
