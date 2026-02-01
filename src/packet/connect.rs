@@ -6,7 +6,7 @@ use crate::{
     protocol::PacketType,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Connect<'a> {
     pub clean_session: bool,
     pub keep_alive: u16,

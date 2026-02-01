@@ -43,7 +43,9 @@ impl<'a> encode::EncodePacket for &Publish<'a> {
 
     fn encode_body(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         self.topic.encode(cursor)?;
-        self.packet_id.map(|id| id.0).unwrap_or(0).encode(cursor)?;
+        if let Some(id) = self.packet_id {
+            id.0.encode(cursor)?;
+        }
         self.payload.encode(cursor)?;
 
         Ok(())

@@ -6,6 +6,7 @@ use crate::{
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
+    parser,
     protocol::{FixedHeader, PacketType},
 };
 
@@ -193,4 +194,129 @@ pub(super) fn empty_body(
 
     header.encode(cursor)?;
     0u8.encode(cursor)
+}
+
+pub struct Assembler<'a> {
+    parser: parser::Parser,
+    header: Option<FixedHeader>,
+    body_chunk: Option<&'a [u8]>,
+}
+
+impl<'a> Assembler<'a> {
+    pub fn new() -> Self {
+        Self {
+            parser: parser::Parser::new(),
+            header: None,
+            body_chunk: None,
+        }
+    }
+
+    pub fn feed(&mut self, input: &'a [u8]) -> Result<(usize, Option<Packet<'a>>), crate::Error> {
+        let mut offset = 0;
+
+        loop {
+            let (consumed, event) = self.parser.parse(&input[offset..])?;
+
+            offset += consumed;
+
+            if let Some(event) = event {
+                match event {
+                    parser::Event::PacketStart { header } => {
+                        self.header = Some(header);
+                        self.body_chunk = None;
+                    }
+                    parser::Event::PacketBody { chunk } => {
+                        self.body_chunk = Some(chunk);
+                    }
+                    parser::Event::PacketEnd => {
+                        if let (Some(header), Some(body)) = (self.header.take(), self.body_chunk) {
+                            let mut cursor = decode::Cursor::new(&body);
+                            let packet = Packet::decode(&header, &mut cursor)?;
+                            return Ok((offset, Some(packet)));
+                        } else {
+                            return Err(crate::Error::MalformedPacket);
+                        }
+                    }
+                }
+            }
+
+            if consumed == 0 {
+                break;
+            }
+        }
+
+        Ok((offset, None))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::packet::{Assembler, Packet, QoS, connect, encode, encode_packet, publish};
+
+    #[test]
+    fn test_assembler_connect() {
+        let packet = connect::Connect {
+            client_id: "Client",
+            keep_alive: 60,
+            ..Default::default()
+        };
+
+        let mut buf = [0u8; 128];
+        let mut cursor = encode::Cursor::new(&mut buf);
+        encode_packet(&packet, &mut cursor).unwrap();
+        let buf = cursor.written();
+        let mut assembler = Assembler::new();
+
+        // [16, 18, 0, 4, 77, 81, 84, 84, 4, 0, 0, 60, 0, 6, 67, 108, 105, 101, 110, 116]
+
+        let (consumed, packet) = assembler.feed(&buf).unwrap();
+
+        assert_eq!(consumed, buf.len());
+        let packet = packet.expect("Packet should be ready");
+
+        if let Packet::Connect(connect) = packet {
+            assert_eq!(connect.client_id, "Client");
+            assert_eq!(connect.keep_alive, 60);
+        } else {
+            panic!("Expected Packet::Connect");
+        }
+    }
+
+    #[test]
+    fn test_assembler_publish() {
+        let packet = publish::Publish {
+            topic: "topic/test",
+            payload: b"hello mqtt",
+            flags: publish::Flags {
+                dup: false,
+                qos: QoS::AtMostOnce,
+                retain: false,
+            },
+            packet_id: None,
+        };
+
+        let mut buf = [0u8; 128];
+        let mut cursor = encode::Cursor::new(&mut buf);
+        crate::packet::encode_packet(&packet, &mut cursor).unwrap();
+
+        let buf = cursor.written();
+        let mut assembler = Assembler::new();
+
+        let (consumed, packet) = assembler.feed(&buf).unwrap();
+
+        assert_eq!(consumed, buf.len());
+        let packet = packet.expect("Packet should be ready");
+
+        if let Packet::Publish(packet) = packet {
+            assert_eq!(packet.topic, "topic/test");
+            assert_eq!(
+                packet.payload,
+                &[
+                    0x00, 0x0A, b'h', b'e', b'l', b'l', b'o', b' ', b'm', b'q', b't', b't'
+                ]
+            );
+        } else {
+            panic!("Expected Packet::Publish")
+        }
+    }
 }
