@@ -6,6 +6,7 @@ use crate::{
     protocol::PacketType,
 };
 
+#[derive(Debug)]
 pub struct Connect<'a> {
     pub clean_session: bool,
     pub keep_alive: u16,
@@ -143,6 +144,7 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
     }
 }
 
+#[derive(Debug)]
 pub struct Will<'a> {
     pub qos: QoS,
     pub retain: bool,
@@ -324,5 +326,25 @@ mod tests {
 
         let len = u16::from_be_bytes([buf[48], buf[49]]) as usize;
         assert_eq!(&buf[50..50 + len], b"long-pass");
+    }
+
+    #[test]
+    fn connect_with_invalid_flags() {
+        let bytes = [
+            0x00,        // "MQTT"
+            0x04,        // |
+            b'M',        // |
+            b'Q',        // |
+            b'T',        // |
+            b'T',        // ___
+            0x04,        // MQTT version
+            0b0000_0001, // Flags - invalid
+            0x00,        // keep_alive = 60
+            0x3C,        // ___
+        ];
+        let mut cursor = decode::Cursor::new(&bytes);
+        let err = Connect::decode(0, &mut cursor).unwrap_err();
+
+        assert!(matches!(err, crate::Error::MalformedPacket));
     }
 }
