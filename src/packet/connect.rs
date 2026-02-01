@@ -95,7 +95,6 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
             + self.keep_alive.required_space()
             + self.client_id.required_space();
 
-            
         if let Some(will) = &self.will {
             required += will.topic.required_space();
             required += will.payload.required_space();
@@ -211,7 +210,10 @@ impl TryFrom<u8> for ConnectReturnCode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{packet::decode::DecodePacket, protocol::PacketType};
+    use crate::{
+        packet::{decode::DecodePacket, encode::EncodePacket},
+        protocol::PacketType,
+    };
 
     use super::*;
 
@@ -235,5 +237,92 @@ mod tests {
         let body = [0b0000_0010, 0x00];
         let mut cursor = decode::Cursor::new(&body);
         assert!(ConnAck::decode(0, &mut cursor).is_err());
+    }
+
+    #[test]
+    fn connect_encode_flags() {
+        let connect = Connect {
+            client_id: "Client",
+            clean_session: true,
+            keep_alive: 60,
+            will: None,
+            username: None,
+            password: None,
+        };
+
+        let mut buf = [0u8; 32];
+        let mut cursor = encode::Cursor::new(&mut buf);
+        (&connect).encode_body(&mut cursor).unwrap();
+
+        // [
+        //   0, 4,   77, 81, 84, 84,    // "MQTT"
+        //   4,                         // MQT version
+        //   2,                         // Flags
+        //   0, 60,                     // keep_alive
+        //   0, 6,   67, 108, 105, 101, 110, 116    // "Client"
+        // ]
+        assert_eq!(cursor.written().len(), 18);
+        assert_eq!(&buf[2..6], b"MQTT");
+        assert_eq!(buf[6], 4);
+        assert_eq!(buf[7], 0b0000_0010);
+        assert_eq!(u16::from_be_bytes([buf[8], buf[9]]), 60);
+
+        let len = u16::from_be_bytes([buf[10], buf[11]]) as usize;
+        assert_eq!(&buf[12..12 + len], b"Client");
+    }
+
+    #[test]
+    fn connect_encode_with_will_username_password() {
+        let will = Will {
+            topic: "topic1",
+            payload: b"heavy-load",
+            qos: QoS::AtLeastOnce,
+            retain: true,
+        };
+
+        let connect = Connect {
+            client_id: "Client 2",
+            clean_session: false,
+            keep_alive: 120,
+            will: Some(will),
+            username: Some("user 1"),
+            password: Some(b"long-pass"),
+        };
+
+        let mut buf = [0u8; 64];
+        let mut cursor = encode::Cursor::new(&mut buf);
+        (&connect).encode_body(&mut cursor).unwrap();
+
+        //  [
+        //    0, 4,   77, 81, 84, 84,   // "MQTT"
+        //    4,                        // MQTT version
+        //    236,                      // Flags
+        //    0, 120,                   // keep_alive
+        //    0, 8,   67, 108, 105, 101, 110, 116, 32, 50,              // "Client 2"
+        //    0, 6,   116, 111, 112, 105, 99, 49,                       // "topic1"
+        //    0, 10,  104, 101, 97, 118, 121, 45, 108, 111, 97, 100,    // "heavy-load"
+        //    0, 6,   117, 115, 101, 114, 32, 49,                       // "user 1"
+        //    0, 9,   108, 111, 110, 103, 45, 112, 97, 115, 115         // "long-pass"
+        //  ]
+
+        assert_eq!(cursor.written().len(), 59);
+
+        assert_eq!(buf[7], 0b1110_1100);
+        assert_eq!(u16::from_be_bytes([buf[8], buf[9]]), 120);
+
+        let len = u16::from_be_bytes([buf[10], buf[11]]) as usize;
+        assert_eq!(&buf[12..12 + len], b"Client 2");
+
+        let len = u16::from_be_bytes([buf[20], buf[21]]) as usize;
+        assert_eq!(&buf[22..22 + len], b"topic1");
+
+        let len = u16::from_be_bytes([buf[28], buf[29]]) as usize;
+        assert_eq!(&buf[30..30 + len], b"heavy-load");
+
+        let len = u16::from_be_bytes([buf[40], buf[41]]) as usize;
+        assert_eq!(&buf[42..42 + len], b"user 1");
+
+        let len = u16::from_be_bytes([buf[48], buf[49]]) as usize;
+        assert_eq!(&buf[50..50 + len], b"long-pass");
     }
 }

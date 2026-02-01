@@ -1,4 +1,7 @@
-use crate::{packet::{Packet, publish, subscribe, unsubscribe}, protocol};
+use crate::{
+    packet::{Packet, publish, subscribe, unsubscribe},
+    protocol,
+};
 
 pub trait EncodePacket {
     const PACKET_TYPE: protocol::PacketType;
@@ -137,7 +140,7 @@ impl Encode for &str {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
         cursor.write_utf8(&self)
     }
-    
+
     fn required_space(&self) -> usize {
         self.as_bytes().len() + 2
     }
@@ -145,6 +148,7 @@ impl Encode for &str {
 
 impl Encode for &[u8] {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error> {
+        cursor.write_u16(self.len() as u16)?;
         cursor.write_bytes(&self)
     }
 
