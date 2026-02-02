@@ -1,9 +1,17 @@
-pub trait Decode<'buf>: Sized {
-    fn decode<'cursor>(cursor: &'cursor mut Cursor<'buf>) -> Result<Self, crate::Error>;
+use crate::buffer;
+
+pub trait Decode<'buf>: Sized
+// where
+    // P: buffer::Provider<'buf>,
+{
+    fn decode(cursor: &mut Cursor) -> Result<Self, crate::Error>;
 }
 
-pub trait DecodePacket<'buf>: Sized {
-    fn decode<'cursor>(flags: u8, cursor: &'cursor mut Cursor<'buf>) -> Result<Self, crate::Error>;
+pub trait DecodePacket<'buf, P>: Sized
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(cursor: &mut Cursor, provider: &'buf mut P, flags: u8) -> Result<Self, crate::Error>;
 }
 
 pub struct Cursor<'a> {
@@ -32,25 +40,29 @@ impl<'a> Cursor<'a> {
         Ok(res)
     }
 
-    pub fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], crate::Error> {
+    pub fn consume<'buf>(&mut self, slice: &'buf mut [u8]) -> Result<(), crate::Error> {
+        let len = slice.len();
         self.ensure_remaining(len)?;
-        let res = &self.buf[self.pos..self.pos + len];
+
+        let start = self.pos;
         self.pos += len;
 
-        Ok(res)
+        slice.copy_from_slice(&self.buf[start..self.pos]);
+
+        Ok(())
     }
 
-    pub fn read_binary_chunk(&mut self) -> Result<&'a [u8], crate::Error> {
-        let len = self.read_u16()? as usize;
-        self.read_bytes(len)
-    }
+    // pub fn read_binary_chunk(&mut self) -> Result<&'a [u8], crate::Error> {
+    //     let len = self.read_u16()? as usize;
+    //     self.consume(len)
+    // }
 
-    pub fn read_utf8(&mut self) -> Result<&'a str, crate::Error> {
-        let len = self.read_u16()? as usize;
-        let bytes = self.read_bytes(len)?;
+    // pub fn read_utf8(&mut self) -> Result<&'a str, crate::Error> {
+    //     let len = self.read_u16()? as usize;
+    //     let bytes = self.consume(len)?;
 
-        core::str::from_utf8(bytes).map_err(|_| crate::Error::InvalidUtf8)
-    }
+    //     core::str::from_utf8(bytes).map_err(|_| crate::Error::InvalidUtf8)
+    // }
 
     pub fn remaining(&self) -> usize {
         self.buf.len() - self.pos
@@ -74,5 +86,43 @@ impl<'a> Cursor<'a> {
         } else {
             Ok(())
         }
+    }
+}
+
+pub(crate) trait CursorExt<'buf, P>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn read_utf8(&mut self, provider: &mut P) -> Result<buffer::String<'buf>, crate::Error>;
+    fn read_binary(&mut self, provider: &mut P) -> Result<buffer::Slice<'buf>, crate::Error>;
+    fn read_all(&mut self, provider: &mut P) -> Result<buffer::Slice<'buf>, crate::Error>;
+}
+
+impl<'buf, P> CursorExt<'buf, P> for Cursor<'_>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn read_utf8(&mut self, provider: &mut P) -> Result<buffer::String<'buf>, crate::Error> {
+        Ok(buffer::String::from(self.read_binary(provider)?))
+    }
+
+    fn read_binary(&mut self, provider: &mut P) -> Result<buffer::Slice<'buf>, crate::Error> {
+        let len = self.read_u16()? as usize;
+        let mut buf = provider
+            .provide(len)
+            .map_err(|_| crate::Error::UnexpectedEof)?;
+
+        self.consume(buf.as_mut())?;
+        Ok(buf.into())
+    }
+
+    fn read_all(&mut self, provider: &mut P) -> Result<buffer::Slice<'buf>, crate::Error> {
+        let len = self.remaining();
+        let mut buf = provider
+            .provide(len)
+            .map_err(|_| crate::Error::UnexpectedEof)?;
+
+        self.consume(buf.as_mut())?;
+        Ok(buf.into())
     }
 }

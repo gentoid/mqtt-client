@@ -1,8 +1,9 @@
 use crate::{
+    buffer,
     packet::{
         connect::{ConnAck, Connect},
         decode::{Decode, DecodePacket},
-        encode::{Encode, EncodePacket},
+        encode::Encode,
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
@@ -48,9 +49,10 @@ impl<'buf> Packet<'buf> {
         }
     }
 
-    fn decode<'cursor>(
+    fn decode<'cursor, P: buffer::Provider<'buf>>(
         header: &FixedHeader,
         cursor: &'cursor mut decode::Cursor<'buf>,
+        provider: &'buf mut P,
     ) -> Result<Self, crate::Error> {
         // @todo this looks wrong
         if header.remaining_len as usize != cursor.remaining() {
@@ -60,19 +62,27 @@ impl<'buf> Packet<'buf> {
         let flags = header.flags;
 
         match header.packet_type {
-            PacketType::Connect => connect::Connect::decode(flags, cursor).map(Packet::Connect),
-            PacketType::ConnAck => connect::ConnAck::decode(flags, cursor).map(Packet::ConnAck),
-            PacketType::Publish => publish::Publish::decode(flags, cursor).map(Packet::Publish),
+            PacketType::Connect => {
+                connect::Connect::decode(cursor, provider, flags).map(Packet::Connect)
+            }
+            PacketType::ConnAck => {
+                connect::ConnAck::decode(cursor, provider, flags).map(Packet::ConnAck)
+            }
+            PacketType::Publish => {
+                publish::Publish::decode(cursor, provider, flags).map(Packet::Publish)
+            }
             PacketType::PubAck => only_packet_id(cursor).map(Packet::PubAck),
             PacketType::PubRec => only_packet_id(cursor).map(Packet::PubRec),
             PacketType::PubRel => only_packet_id(cursor).map(Packet::PubRel),
             PacketType::PubComp => only_packet_id(cursor).map(Packet::PubComp),
             PacketType::Subscribe => {
-                subscribe::Subscribe::decode(flags, cursor).map(Packet::Subscribe)
+                subscribe::Subscribe::decode(cursor, provider, flags).map(Packet::Subscribe)
             }
-            PacketType::SubAck => subscribe::SubAck::decode(flags, cursor).map(Packet::SubAck),
+            PacketType::SubAck => {
+                subscribe::SubAck::decode(cursor, provider, flags).map(Packet::SubAck)
+            }
             PacketType::Unsubscribe => {
-                unsubscribe::Unsubscribe::decode(flags, cursor).map(Packet::Unsubscribe)
+                unsubscribe::Unsubscribe::decode(cursor, provider, flags).map(Packet::Unsubscribe)
             }
             PacketType::UnsubAck => only_packet_id(cursor).map(Packet::UnsubAck),
             PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
@@ -129,7 +139,7 @@ impl encode::Encode for QoS {
 }
 
 impl<'buf> decode::Decode<'buf> for QoS {
-    fn decode<'cursor>(cursor: &'cursor mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
+    fn decode<'cursor>(cursor: &'cursor mut decode::Cursor) -> Result<Self, crate::Error> {
         let byte = cursor.read_u8()?;
         Self::try_from(byte)
     }
@@ -175,7 +185,7 @@ impl encode::Encode for PacketId {
 }
 
 impl<'buf> decode::Decode<'buf> for PacketId {
-    fn decode(cursor: &mut decode::Cursor<'buf>) -> Result<Self, crate::Error> {
+    fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {
         Self::try_from(cursor.read_u16()?)
     }
 }
@@ -196,6 +206,11 @@ pub(super) fn empty_body(
     0u8.encode(cursor)
 }
 
+pub struct Assembled<'a> {
+    pub header: FixedHeader,
+    pub body: &'a [u8],
+}
+
 pub struct Assembler<'a> {
     parser: parser::Parser,
     header: Option<FixedHeader>,
@@ -211,7 +226,10 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    pub fn feed(&mut self, input: &'a [u8]) -> Result<(usize, Option<Packet<'a>>), crate::Error> {
+    pub fn feed(
+        &mut self,
+        input: &'a [u8],
+    ) -> Result<(usize, Option<Assembled<'a>>), crate::Error> {
         let mut offset = 0;
 
         loop {
@@ -229,13 +247,13 @@ impl<'a> Assembler<'a> {
                         self.body_chunk = Some(chunk);
                     }
                     parser::Event::PacketEnd => {
-                        if let (Some(header), Some(body)) = (self.header.take(), self.body_chunk) {
-                            let mut cursor = decode::Cursor::new(&body);
-                            let packet = Packet::decode(&header, &mut cursor)?;
-                            return Ok((offset, Some(packet)));
-                        } else {
-                            return Err(crate::Error::MalformedPacket);
-                        }
+                        let header = self.header.take().ok_or(crate::Error::MalformedPacket)?;
+                        let body = self
+                            .body_chunk
+                            .take()
+                            .ok_or(crate::Error::MalformedPacket)?;
+
+                        return Ok((offset, Some(Assembled { header, body })));
                     }
                 }
             }
@@ -251,14 +269,21 @@ impl<'a> Assembler<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::{Assembler, Packet, QoS, connect, encode, encode_packet, publish};
+    use crate::{
+        buffer,
+        packet::{Assembler, QoS, connect, encode, encode_packet, publish},
+        protocol::PacketType,
+    };
 
     #[test]
     fn test_assembler_connect() {
         let packet = connect::Connect {
-            client_id: "Client",
+            client_id: buffer::String::from("Client"),
             keep_alive: 60,
-            ..Default::default()
+            clean_session: true,
+            password: None,
+            username: None,
+            will: None,
         };
 
         let mut buf = [0u8; 128];
@@ -274,19 +299,15 @@ mod tests {
         assert_eq!(consumed, buf.len());
         let packet = packet.expect("Packet should be ready");
 
-        if let Packet::Connect(connect) = packet {
-            assert_eq!(connect.client_id, "Client");
-            assert_eq!(connect.keep_alive, 60);
-        } else {
-            panic!("Expected Packet::Connect");
-        }
+        assert!(matches!(packet.header.packet_type, PacketType::Connect));
+        assert_eq!(packet.header.remaining_len as usize, packet.body.len());
     }
 
     #[test]
     fn test_assembler_publish() {
         let packet = publish::Publish {
-            topic: "topic/test",
-            payload: b"hello mqtt",
+            topic: buffer::String::from("topic/test"),
+            payload: buffer::Slice::from(b"hello mqtt".as_slice()),
             flags: publish::Flags {
                 dup: false,
                 qos: QoS::AtMostOnce,
@@ -307,16 +328,6 @@ mod tests {
         assert_eq!(consumed, buf.len());
         let packet = packet.expect("Packet should be ready");
 
-        if let Packet::Publish(packet) = packet {
-            assert_eq!(packet.topic, "topic/test");
-            assert_eq!(
-                packet.payload,
-                &[
-                    0x00, 0x0A, b'h', b'e', b'l', b'l', b'o', b' ', b'm', b'q', b't', b't'
-                ]
-            );
-        } else {
-            panic!("Expected Packet::Publish")
-        }
+        assert!(matches!(packet.header.packet_type, PacketType::Publish));
     }
 }

@@ -1,4 +1,4 @@
-use crate::packet::encode::RequiredSize;
+use crate::packet::encode::{self, RequiredSize};
 
 pub(crate) trait Provider<'buf> {
     type Buffer: AsMut<[u8]> + Into<Slice<'buf>>;
@@ -24,9 +24,39 @@ impl<'buf> Slice<'buf> {
     }
 }
 
+impl<'buf> encode::Encode for Slice<'buf> {
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        todo!()
+    }
+
+    fn required_space(&self) -> usize {
+        self.inner.len() + 2
+    }
+}
+
 impl<'buf> From<&'buf mut [u8]> for Slice<'buf> {
     fn from(value: &'buf mut [u8]) -> Self {
         Self { inner: value }
+    }
+}
+
+impl<'buf> From<&'buf [u8]> for Slice<'buf> {
+    fn from(value: &'buf [u8]) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl<'buf> From<&'buf str> for Slice<'buf> {
+    fn from(value: &'buf str) -> Self {
+        Self {
+            inner: value.as_bytes(),
+        }
+    }
+}
+
+impl<'buf> PartialEq<&[u8]> for Slice<'buf> {
+    fn eq(&self, other: &&[u8]) -> bool {
+        self.inner == *other
     }
 }
 
@@ -70,12 +100,6 @@ pub struct String<'buf> {
     inner: Slice<'buf>,
 }
 
-impl<'buf> String<'buf> {
-    pub(crate) fn required_space(&self) -> usize {
-        self.inner.len() + 2
-    }
-}
-
 impl<'buf> From<Slice<'buf>> for String<'buf> {
     fn from(value: Slice<'buf>) -> Self {
         Self { inner: value }
@@ -90,8 +114,27 @@ impl<'buf> From<&'buf mut [u8]> for String<'buf> {
     }
 }
 
-impl <'buf> PartialEq<&str> for String<'buf> {
+#[cfg(test)]
+impl<'buf> From<&'buf str> for String<'buf> {
+    fn from(value: &'buf str) -> Self {
+        Self {
+            inner: Slice::from(value),
+        }
+    }
+}
+
+impl<'buf> PartialEq<&str> for String<'buf> {
     fn eq(&self, other: &&str) -> bool {
         self.inner.as_bytes() == other.as_bytes()
+    }
+}
+
+impl<'buf> encode::Encode for String<'buf> {
+    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        todo!()
+    }
+
+    fn required_space(&self) -> usize {
+        self.inner.required_space()
     }
 }

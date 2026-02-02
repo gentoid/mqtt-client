@@ -1,17 +1,18 @@
 use crate::{
+    buffer,
     packet::{
         PacketId, QoS,
-        decode::{self, Decode},
-        encode::{self, Encode, is_full},
+        decode::{self, CursorExt, Decode},
+        encode::{self, Encode},
     },
     protocol::PacketType,
 };
 
 pub struct Publish<'a> {
     pub flags: Flags,
-    pub topic: &'a str,
+    pub topic: buffer::String<'a>,
     pub packet_id: Option<PacketId>,
-    pub payload: &'a [u8],
+    pub payload: buffer::Slice<'a>,
 }
 
 pub struct Flags {
@@ -57,22 +58,24 @@ impl<'a> encode::EncodePacket for &Publish<'a> {
 
     fn required_space(&self) -> usize {
         self.topic.required_space()
-            + self.packet_id.map(|id| id.0).unwrap_or(0).required_space()
+            + self.packet_id.map(|id| id.0.required_space()).unwrap_or(0)
             + self.payload.required_space()
     }
 }
 
-impl<'buf> decode::DecodePacket<'buf> for Publish<'buf> {
-    fn decode<'cursor>(
+impl<'buf, P> decode::DecodePacket<'buf, P> for Publish<'buf>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(
+        cursor: &mut decode::Cursor,
+        provider: &mut P,
         flags: u8,
-        cursor: &'cursor mut decode::Cursor<'buf>,
     ) -> Result<Self, crate::Error> {
         let flags = Flags::try_from(flags)?;
 
-        let mut offset = 0;
-
         // // @todo this cannot be a topic filter unlike subscribe, so maybe chec for allowed chars
-        let topic = cursor.read_utf8()?;
+        let topic = cursor.read_utf8(provider)?;
 
         let packet_id = if let QoS::AtMostOnce = flags.qos {
             None
@@ -82,7 +85,7 @@ impl<'buf> decode::DecodePacket<'buf> for Publish<'buf> {
             Some(packet_id)
         };
 
-        let payload = cursor.read_bytes(cursor.remaining())?;
+        let payload = cursor.read_all(provider)?;
 
         Ok(Publish {
             flags,
@@ -95,7 +98,7 @@ impl<'buf> decode::DecodePacket<'buf> for Publish<'buf> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{packet::decode::DecodePacket, protocol::PacketType};
+    use crate::packet::decode::DecodePacket;
 
     use super::*;
 
@@ -106,7 +109,9 @@ mod tests {
             0x00, 0x05, b't', b'o', b'p', b'i', b'c', b'p', b'a', b'y', b'l', b'o', b'a', b'd',
         ];
         let mut cursor = decode::Cursor::new(&body);
-        let packet = Publish::decode(0, &mut cursor).unwrap();
+        let mut buf = [0u8; 32];
+        let mut provider = buffer::Bump::new(&mut buf);
+        let packet = Publish::decode(&mut cursor, &mut provider, flags).unwrap();
 
         assert!(matches!(
             packet.flags,
@@ -118,6 +123,6 @@ mod tests {
         ));
         assert_eq!(packet.packet_id, None);
         assert_eq!(packet.topic, "topic");
-        assert_eq!(packet.payload, "payload".as_bytes());
+        assert_eq!(packet.payload, b"payload".as_slice());
     }
 }

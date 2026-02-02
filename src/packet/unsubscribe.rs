@@ -1,16 +1,18 @@
 use heapless::Vec;
 
 use crate::{
+    buffer,
     packet::{
-        Packet, PacketId, decode::{self, Decode},
-        encode::{self, Encode, is_full},
+        PacketId,
+        decode::{self, CursorExt, Decode},
+        encode::{self, Encode},
     },
-    protocol::{FixedHeader, PacketType},
+    protocol::PacketType,
 };
 
 pub struct Unsubscribe<'a, const N: usize = 16> {
     pub packet_id: PacketId,
-    pub topics: Vec<&'a str, N>,
+    pub topics: Vec<buffer::String<'a>, N>,
 }
 
 impl<'a, const P: usize> encode::EncodePacket for &Unsubscribe<'a, P> {
@@ -41,17 +43,17 @@ impl<'a, const P: usize> encode::EncodePacket for &Unsubscribe<'a, P> {
     }
 }
 
-impl<'buf, const P: usize> decode::DecodePacket<'buf> for Unsubscribe<'buf, P> {
-    fn decode<'cursor>(
-        flags: u8,
-        cursor: &'cursor mut decode::Cursor<'buf>,
-    ) -> Result<Self, crate::Error> {
+impl<'buf, P, const N: usize> decode::DecodePacket<'buf, P> for Unsubscribe<'buf, N>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(cursor: &mut decode::Cursor, provider: &mut P, _: u8) -> Result<Self, crate::Error> {
         let packet_id = PacketId::decode(cursor)?;
 
         let mut topics = Vec::new();
 
         while !cursor.is_empty() {
-            let topic = cursor.read_utf8()?;
+            let topic = cursor.read_utf8(provider)?;
             topics.push(topic).map_err(|_| crate::Error::VectorIsFull)?;
         }
 

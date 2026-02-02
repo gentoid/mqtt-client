@@ -1,7 +1,4 @@
-use crate::{
-    packet::{Packet, publish, subscribe, unsubscribe},
-    protocol,
-};
+use crate::protocol;
 
 pub trait EncodePacket {
     const PACKET_TYPE: protocol::PacketType;
@@ -80,7 +77,8 @@ impl<'buf> Cursor<'buf> {
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
         let len = bytes.len();
         self.ensure_remaining(len)?;
-        let res = &self.buf[self.pos..self.pos + len].copy_from_slice(bytes);
+        
+        self.buf[self.pos..self.pos + len].copy_from_slice(bytes);
         self.pos += len;
 
         Ok(())

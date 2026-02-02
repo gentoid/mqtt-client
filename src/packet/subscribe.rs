@@ -1,12 +1,13 @@
 use heapless::Vec;
 
 use crate::{
+    buffer,
     packet::{
-        self, PacketId, QoS,
-        decode::{self, Decode},
-        encode::{self, Encode, RequiredSize, is_full},
+        PacketId, QoS,
+        decode::{self, CursorExt, Decode},
+        encode::{self, Encode},
     },
-    protocol::{FixedHeader, PacketType},
+    protocol::PacketType,
 };
 
 pub struct Subscribe<'a, const N: usize = 16> {
@@ -42,17 +43,17 @@ impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
     }
 }
 
-impl<'buf, const P: usize> decode::DecodePacket<'buf> for Subscribe<'buf, P> {
-    fn decode<'cursor>(
-        flags: u8,
-        cursor: &'cursor mut decode::Cursor<'buf>,
-    ) -> Result<Self, crate::Error> {
+impl<'buf, P, const N: usize> decode::DecodePacket<'buf, P> for Subscribe<'buf, N>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(cursor: &mut decode::Cursor, provider: &mut P, _: u8) -> Result<Self, crate::Error> {
         let packet_id = PacketId::decode(cursor)?;
 
-        let mut topics = Vec::<Subscription<'buf>, P>::new();
+        let mut topics = Vec::<Subscription<'buf>, N>::new();
 
         while !cursor.is_empty() {
-            let topic_filter = cursor.read_utf8()?;
+            let topic_filter = cursor.read_utf8(provider)?;
             let qos = QoS::decode(cursor)?;
 
             topics
@@ -70,7 +71,7 @@ impl<'buf, const P: usize> decode::DecodePacket<'buf> for Subscribe<'buf, P> {
 
 #[derive(Debug)]
 pub struct Subscription<'a> {
-    pub topic_filter: &'a str,
+    pub topic_filter: buffer::String<'a>,
     pub qos: QoS,
 }
 
@@ -90,13 +91,13 @@ pub struct SubAck<const N: usize = 16> {
     pub return_codes: Vec<SubAckReturnCode, N>,
 }
 
-impl<'buf, const P: usize> decode::DecodePacket<'buf> for SubAck<P> {
-    fn decode<'cursor>(
-        flags: u8,
-        cursor: &'cursor mut decode::Cursor<'buf>,
-    ) -> Result<Self, crate::Error> {
+impl<'buf, P, const N: usize> decode::DecodePacket<'buf, P> for SubAck<N>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(cursor: &mut decode::Cursor, _: &mut P, _: u8) -> Result<Self, crate::Error> {
         let packet_id = PacketId::decode(cursor)?;
-        let mut return_codes = Vec::<SubAckReturnCode, P>::new();
+        let mut return_codes = Vec::<SubAckReturnCode, N>::new();
 
         while !cursor.is_empty() {
             let code = SubAckReturnCode::try_from(cursor.read_u8()?)?;
@@ -138,26 +139,24 @@ impl TryFrom<u8> for SubAckReturnCode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        packet::{
-            Packet,
-            decode::DecodePacket,
-            encode::{Encode, EncodePacket},
-        },
-        protocol::PacketType,
-    };
+    use crate::packet::{decode::DecodePacket, encode::EncodePacket};
 
     use super::*;
 
-    fn parse_suback<const N: usize>(body: &[u8]) -> Result<SubAck<N>, crate::Error> {
-        SubAck::<N>::decode(0, &mut decode::Cursor::new(&body))
+    fn parse_suback<const N: usize>(
+        body: &[u8],
+        buf: &mut [u8],
+    ) -> Result<SubAck<N>, crate::Error> {
+        let mut provider = buffer::Bump::new(buf);
+        SubAck::<N>::decode(&mut decode::Cursor::new(&body), &mut provider, 0)
     }
 
     #[test]
     fn suback_single_success() {
         // packet_id = 16, return code = 1
         let body = [0x00, 0x10, 0x01];
-        let packet = parse_suback::<1>(&body).unwrap();
+        let mut buf = [0u8; 16];
+        let packet = parse_suback::<1>(&body, &mut buf[..]).unwrap();
 
         assert_eq!(packet.packet_id.0, 16);
         assert_eq!(packet.return_codes.len(), 1);
@@ -170,14 +169,15 @@ mod tests {
     #[test]
     fn suback_invalid_return_code() {
         let body = [0x00, 0x10, 0x05];
-        assert!(parse_suback::<1>(&body).is_err());
+        let mut buf = [0u8; 16];
+        assert!(parse_suback::<1>(&body, &mut buf[..]).is_err());
     }
 
     fn make_subscribe<'a, const N: usize>() -> Subscribe<'a, N> {
         let mut topics: Vec<Subscription, N> = Vec::new();
         topics
             .push(Subscription {
-                topic_filter: "a/b",
+                topic_filter: buffer::String::from("a/b"),
                 qos: QoS::AtLeastOnce,
             })
             .unwrap();

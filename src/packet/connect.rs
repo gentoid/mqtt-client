@@ -1,27 +1,33 @@
 use crate::{
+    buffer,
     packet::{
-        QoS, decode,
+        QoS,
+        decode::{self, CursorExt},
         encode::{self, Encode},
     },
     protocol::PacketType,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Connect<'a> {
     pub clean_session: bool,
     pub keep_alive: u16,
-    pub client_id: &'a str,
+    pub client_id: buffer::String<'a>,
     pub will: Option<Will<'a>>,
-    pub username: Option<&'a str>,
-    pub password: Option<&'a [u8]>,
+    pub username: Option<buffer::String<'a>>,
+    pub password: Option<buffer::Slice<'a>>,
 }
 
-impl<'buf> decode::DecodePacket<'buf> for Connect<'buf> {
-    fn decode<'cursor>(
-        flags: u8,
-        cursor: &'cursor mut decode::Cursor<'buf>,
+impl<'buf, P> decode::DecodePacket<'buf, P> for Connect<'buf>
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(
+        cursor: &mut decode::Cursor,
+        provider: &'buf mut P,
+        _: u8,
     ) -> Result<Self, crate::Error> {
-        let protocol_name = cursor.read_utf8()?;
+        let protocol_name = cursor.read_utf8(provider)?;
         if protocol_name != "MQTT" {
             return Err(crate::Error::MalformedPacket);
         }
@@ -45,13 +51,20 @@ impl<'buf> decode::DecodePacket<'buf> for Connect<'buf> {
         let username_flag = flags & 0b1000_0000 == 1;
 
         let keep_alive = cursor.read_u16()?;
+
         // @todo: validate client id (see 3.1.3.1 Client Identifier of the MQTT 3.1.1 spec)
-        let client_id = cursor.read_utf8()?;
+        let len = cursor.read_u16()? as usize;
+        let mut buf = provider
+            .provide(len)
+            .map_err(|_| crate::Error::UnexpectedEof)?;
+        cursor.consume(buf.as_mut())?;
+
+        let client_id = buffer::String::from(buf.into());
 
         let will = if will_flag {
             Some(Will {
-                topic: cursor.read_utf8()?,
-                payload: cursor.read_binary_chunk()?,
+                topic: cursor.read_utf8(provider)?,
+                payload: cursor.read_binary(provider)?,
                 qos,
                 retain,
             })
@@ -60,13 +73,13 @@ impl<'buf> decode::DecodePacket<'buf> for Connect<'buf> {
         };
 
         let username = if username_flag {
-            Some(cursor.read_utf8()?)
+            Some(cursor.read_utf8(provider)?)
         } else {
             None
         };
 
         let password = if password_flag {
-            Some(cursor.read_binary_chunk()?)
+            Some(cursor.read_binary(provider)?)
         } else {
             None
         };
@@ -101,11 +114,11 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
             required += will.payload.required_space();
         }
 
-        if let Some(username) = self.username {
+        if let Some(username) = &self.username {
             required += username.required_space();
         }
 
-        if let Some(password) = self.password {
+        if let Some(password) = &self.password {
             required += password.required_space();
         }
 
@@ -132,11 +145,11 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
             will.payload.encode(cursor)?;
         }
 
-        if let Some(username) = self.username {
+        if let Some(username) = &self.username {
             username.encode(cursor)?;
         }
 
-        if let Some(password) = self.password {
+        if let Some(password) = &self.password {
             password.encode(cursor)?;
         }
 
@@ -148,8 +161,8 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
 pub struct Will<'a> {
     pub qos: QoS,
     pub retain: bool,
-    pub topic: &'a str,
-    pub payload: &'a [u8],
+    pub topic: buffer::String<'a>,
+    pub payload: buffer::Slice<'a>,
 }
 
 pub struct ConnAck {
@@ -157,11 +170,11 @@ pub struct ConnAck {
     pub return_code: ConnectReturnCode,
 }
 
-impl<'buf> decode::DecodePacket<'buf> for ConnAck {
-    fn decode<'cursor>(
-        flags: u8,
-        cursor: &'cursor mut decode::Cursor<'buf>,
-    ) -> Result<Self, crate::Error> {
+impl<'buf, P> decode::DecodePacket<'buf, P> for ConnAck
+where
+    P: buffer::Provider<'buf>,
+{
+    fn decode(cursor: &mut decode::Cursor, _: &mut P, _: u8) -> Result<Self, crate::Error> {
         let flags = cursor.read_u8()?;
 
         if flags & 0b1111_1110 != 0 {
@@ -213,8 +226,8 @@ impl TryFrom<u8> for ConnectReturnCode {
 #[cfg(test)]
 mod tests {
     use crate::{
+        buffer,
         packet::{decode::DecodePacket, encode::EncodePacket},
-        protocol::PacketType,
     };
 
     use super::*;
@@ -223,7 +236,9 @@ mod tests {
     fn connack_accepted() {
         let body = [0x00, 0x00];
         let mut cursor = decode::Cursor::new(&body);
-        let packet = ConnAck::decode(0, &mut cursor).unwrap();
+        let mut buf = [0u8; 16];
+        let mut buf = buffer::Bump::new(&mut buf[..]);
+        let packet = ConnAck::decode(&mut cursor, &mut buf, 0).unwrap();
 
         assert!(matches!(
             packet,
@@ -238,13 +253,15 @@ mod tests {
     fn connack_invalid_flags() {
         let body = [0b0000_0010, 0x00];
         let mut cursor = decode::Cursor::new(&body);
-        assert!(ConnAck::decode(0, &mut cursor).is_err());
+        let mut buf = [0u8; 16];
+        let mut buf = buffer::Bump::new(&mut buf[..]);
+        assert!(ConnAck::decode(&mut cursor, &mut buf, 0).is_err());
     }
 
     #[test]
     fn connect_encode_flags() {
         let connect = Connect {
-            client_id: "Client",
+            client_id: buffer::String::from("Client"),
             clean_session: true,
             keep_alive: 60,
             will: None,
@@ -276,19 +293,19 @@ mod tests {
     #[test]
     fn connect_encode_with_will_username_password() {
         let will = Will {
-            topic: "topic1",
-            payload: b"heavy-load",
+            topic: buffer::String::from("topic1"),
+            payload: buffer::Slice::from(b"heavy-load".as_slice()),
             qos: QoS::AtLeastOnce,
             retain: true,
         };
 
         let connect = Connect {
-            client_id: "Client 2",
+            client_id: buffer::String::from("Client 2"),
             clean_session: false,
             keep_alive: 120,
             will: Some(will),
-            username: Some("user 1"),
-            password: Some(b"long-pass"),
+            username: Some(buffer::String::from("user 1")),
+            password: Some(buffer::Slice::from(b"long-pass".as_slice())),
         };
 
         let mut buf = [0u8; 64];
@@ -343,7 +360,9 @@ mod tests {
             0x3C,        // ___
         ];
         let mut cursor = decode::Cursor::new(&bytes);
-        let err = Connect::decode(0, &mut cursor).unwrap_err();
+        let mut buf = [0u8; 32];
+        let mut buf = buffer::Bump::new(&mut buf[..]);
+        let err = Connect::decode(&mut cursor, &mut buf, 0).unwrap_err();
 
         assert!(matches!(err, crate::Error::MalformedPacket));
     }
