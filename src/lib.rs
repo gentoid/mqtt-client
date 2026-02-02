@@ -1,6 +1,7 @@
 #![no_std]
 #[allow(unused)]
 
+pub mod buffer;
 pub mod packet;
 pub mod parser;
 pub mod protocol;
