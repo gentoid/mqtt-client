@@ -1,14 +1,13 @@
 use crate::packet::encode::{self, RequiredSize};
 
-pub(crate) trait Provider<'buf> {
-    type Buffer: AsMut<[u8]> + Into<Slice<'buf>>;
+pub trait Provider<'buf> {
     type Error: core::fmt::Debug;
 
-    fn provide(&mut self, len: usize) -> Result<Self::Buffer, Self::Error>;
+    fn provide(&mut self, len: usize) -> Result<&'buf mut [u8], Self::Error>;
 }
 
 #[derive(Debug)]
-pub(crate) struct Slice<'buf> {
+pub struct Slice<'buf> {
     inner: &'buf [u8],
 }
 
@@ -26,7 +25,7 @@ impl<'buf> Slice<'buf> {
 
 impl<'buf> encode::Encode for Slice<'buf> {
     fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
-        todo!()
+        cursor.write_binary_chunk(self.inner)
     }
 
     fn required_space(&self) -> usize {
@@ -72,10 +71,9 @@ impl<'buf> Bump<'buf> {
 }
 
 impl<'buf> Provider<'buf> for Bump<'buf> {
-    type Buffer = &'buf mut [u8];
     type Error = crate::Error;
 
-    fn provide(&mut self, len: usize) -> Result<Self::Buffer, Self::Error> {
+    fn provide(&mut self, len: usize) -> Result<&'buf mut [u8], Self::Error> {
         if self.index + len > self.buf.len() {
             return Err(crate::Error::UnexpectedEof);
         }
@@ -131,7 +129,7 @@ impl<'buf> PartialEq<&str> for String<'buf> {
 
 impl<'buf> encode::Encode for String<'buf> {
     fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
-        todo!()
+        self.inner.encode(cursor)
     }
 
     fn required_space(&self) -> usize {
