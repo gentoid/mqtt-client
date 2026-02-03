@@ -23,4 +23,6 @@ pub enum Error {
     TransportError,
     UnsupportedIncomingPacket,
     BufferTooSmall,
+    TimeError,
+    TimedOut,
 }
