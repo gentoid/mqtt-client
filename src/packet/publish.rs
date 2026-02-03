@@ -25,9 +25,13 @@ impl TryFrom<u8> for Flags {
     type Error = crate::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        let dup = value & 0b1000 == 1;
+        let dup = (value & 0b1000) != 0;
         let qos = QoS::try_from((value >> 1) & 0b11)?;
-        let retain = value & 0b0001 == 1;
+        let retain = (value & 0b0001) != 0;
+
+        if qos == QoS::AtMostOnce && dup {
+            return Err(crate::Error::MalformedPacket);
+        }
 
         Ok(Self { dup, qos, retain })
     }
