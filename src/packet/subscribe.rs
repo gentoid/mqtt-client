@@ -86,7 +86,7 @@ impl<'a> encode::Encode for Subscription<'a> {
     }
 }
 
-pub struct SubAck<const N: usize = 16> {
+pub struct SubAck<const N: usize> {
     pub(crate) packet_id: PacketId,
     pub return_codes: Vec<SubAckReturnCode, N>,
 }

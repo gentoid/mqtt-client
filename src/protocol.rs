@@ -47,5 +47,5 @@ impl TryFrom<u8> for PacketType {
 pub struct FixedHeader {
     pub packet_type: PacketType,
     pub flags: u8,
-    pub remaining_len: u32,
+    pub remaining_len: usize,
 }

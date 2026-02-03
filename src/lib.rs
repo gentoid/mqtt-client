@@ -18,4 +18,7 @@ pub enum Error {
     InvalidUtf8,
     EncodeNotImplemented,
     UnexpectedEof,
+    TransportError,
+    UnsupportedIncomingPacket,
+    BufferTooSmall,
 }

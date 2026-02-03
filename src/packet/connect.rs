@@ -196,6 +196,7 @@ where
 
 // @note: for MQTT 5.0 it is a whole another story
 #[repr(u8)]
+#[derive(PartialEq)]
 pub enum ConnectReturnCode {
     Accepted = 0,
     UnacceptableProtocolVersion = 1,

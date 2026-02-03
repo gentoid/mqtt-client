@@ -1,9 +1,28 @@
 use embedded_io_async::Read;
+use heapless::Vec;
 
-use crate::protocol::{FixedHeader, PacketType};
+use crate::{
+    buffer,
+    packet::{
+        Packet, PacketId, QoS,
+        connect::{ConnAck, ConnectReturnCode},
+        encode::Encode,
+        publish::{self, Publish},
+        subscribe::{SubAck, SubAckReturnCode},
+    },
+    protocol::{FixedHeader, PacketType},
+};
+
+pub(crate) async fn read_packet<'p, R: Read, P: buffer::Provider<'p>, const N: usize>(
+    read: &mut R,
+    buf_provider: &'p mut P,
+) -> Result<Packet<'p>, crate::Error> {
+    let header = read_fixed_header(read).await?;
+    read_packet_body::<R, P, N>(read, buf_provider, &header).await
+}
 
 async fn read_fixed_header<R: Read>(read: &mut R) -> Result<FixedHeader, crate::Error> {
-    let byte = read_one_byte(read).await?;
+    let byte = read_u8(read).await?;
     let (packet_type, flags) = parse_first_byte(byte)?;
     let remaining_len = read_remaining_len(read).await?;
 
@@ -12,6 +31,147 @@ async fn read_fixed_header<R: Read>(read: &mut R) -> Result<FixedHeader, crate::
         packet_type,
         remaining_len,
     })
+}
+
+async fn read_packet_body<'p, R: Read, P: buffer::Provider<'p>, const N: usize>(
+    read: &mut R,
+    buf_provider: &'p mut P,
+    header: &FixedHeader,
+) -> Result<Packet<'p>, crate::Error> {
+    match header.packet_type {
+        PacketType::ConnAck => read_connack(read, header).await,
+        PacketType::Publish => read_publish(read, buf_provider, header).await,
+        PacketType::PubAck => read_only_packet_id(read, header).await.map(Packet::PubAck),
+        PacketType::PubRec => read_only_packet_id(read, header).await.map(Packet::PubRec),
+        PacketType::PubRel => read_only_packet_id(read, header).await.map(Packet::PubRel),
+        PacketType::PubComp => read_only_packet_id(read, header).await.map(Packet::PubComp),
+        PacketType::SubAck => read_suback::<R, N>(read, header).await,
+        PacketType::UnsubAck => read_only_packet_id(read, header)
+            .await
+            .map(Packet::UnsubAck),
+        PacketType::PingReq => expect_empty(header).map(|_| Packet::PingReq),
+        PacketType::PingResp => expect_empty(header).map(|_| Packet::PingResp),
+        _ => Err(crate::Error::UnsupportedIncomingPacket),
+    }
+}
+
+async fn read_connack<'p, R: Read>(
+    read: &mut R,
+    header: &FixedHeader,
+) -> Result<Packet<'p>, crate::Error> {
+    if header.remaining_len != 2 {
+        return Err(crate::Error::MalformedRemainingLength);
+    }
+
+    let flags = read_u8(read).await?;
+    if flags & 0b1111_1110 != 0 {
+        return Err(crate::Error::MalformedPacket);
+    }
+
+    let session_present = (flags & 0b0000_0001) != 0;
+    let return_code = ConnectReturnCode::try_from(read_u8(read).await?)?;
+
+    if return_code != ConnectReturnCode::Accepted && session_present {
+        return Err(crate::Error::MalformedPacket);
+    }
+
+    Ok(Packet::ConnAck(ConnAck {
+        return_code,
+        session_present,
+    }))
+}
+
+async fn read_publish<'p, R: Read, P: buffer::Provider<'p>>(
+    read: &mut R,
+    buf_provider: &'p mut P,
+    header: &FixedHeader,
+) -> Result<Packet<'p>, crate::Error> {
+    let flags = publish::Flags::try_from(header.flags)?;
+
+    // // @todo this cannot be a topic filter unlike subscribe, so maybe check for allowed chars
+    let buf = read_binary(read, buf_provider).await?;
+    let topic = buffer::String::from(buf);
+
+    let packet_id = if let QoS::AtMostOnce = flags.qos {
+        None
+    } else {
+        let packet_id = PacketId::try_from(read_u16(read).await?)?;
+
+        Some(packet_id)
+    };
+
+    let read_bytes = topic.required_space() + packet_id.map(|id| id.required_space()).unwrap_or(0);
+
+    let len = header
+        .remaining_len
+        .checked_sub(read_bytes)
+        .ok_or(crate::Error::MalformedRemainingLength)?;
+
+    let buf = buf_provider
+        .provide(len)
+        .map_err(|_| crate::Error::BufferTooSmall)?;
+
+    read.read_exact(buf)
+        .await
+        .map_err(|_| crate::Error::TransportError)?;
+
+    let payload = buffer::Slice::from(buf);
+
+    Ok(Packet::Publish(Publish {
+        flags,
+        topic,
+        packet_id,
+        payload,
+    }))
+}
+
+async fn read_only_packet_id<R: Read>(
+    read: &mut R,
+    header: &FixedHeader,
+) -> Result<PacketId, crate::Error> {
+    if header.remaining_len != 2 {
+        return Err(crate::Error::MalformedRemainingLength);
+    }
+
+    PacketId::try_from(read_u16(read).await?)
+}
+
+async fn read_suback<'p, R: Read, const N: usize>(
+    read: &mut R,
+    header: &FixedHeader,
+) -> Result<Packet<'p>, crate::Error> {
+    if header.remaining_len <= 2 {
+        return Err(crate::Error::MalformedRemainingLength);
+    }
+
+    let mut remaining = header.remaining_len;
+
+    let packet_id = PacketId::try_from(read_u16(read).await?)?;
+    remaining -= 2;
+
+    let mut return_codes = Vec::<SubAckReturnCode, N>::new();
+
+    while remaining > 0 {
+        let code = SubAckReturnCode::try_from(read_u8(read).await?)?;
+        remaining -= 1;
+
+        return_codes
+            .push(code)
+            .map_err(|_| crate::Error::VectorIsFull)?;
+    }
+
+    Ok(Packet::SubAck(SubAck {
+        packet_id,
+        return_codes,
+    }))
+}
+
+fn expect_empty(header: &FixedHeader) -> Result<(), crate::Error> {
+    if header.remaining_len != 0 {
+        return Err(crate::Error::MalformedRemainingLength);
+    }
+
+    Ok(())
 }
 
 fn parse_first_byte(byte: u8) -> Result<(PacketType, u8), crate::Error> {
@@ -25,30 +185,33 @@ fn parse_first_byte(byte: u8) -> Result<(PacketType, u8), crate::Error> {
     Ok((packet_type, flags))
 }
 
-async fn read_remaining_len<R: Read>(read: &mut R) -> Result<u32, crate::Error> {
+async fn read_remaining_len<R: Read>(read: &mut R) -> Result<usize, crate::Error> {
     let mut bytes_read = 0;
-    let mut remaining_len = 0;
+    let mut remaining_len: usize = 0;
     let mut multiplier = 1;
 
     loop {
-        let byte = read_one_byte(read).await?;
+        let byte = read_u8(read).await?;
         bytes_read += 1;
 
-        let digit = (byte & 0x7F) as u32;
-        remaining_len += digit * multiplier;
-        multiplier *= 128;
+        let digit = (byte & 0x7F) as usize;
+        remaining_len = remaining_len
+            .checked_add(digit * multiplier)
+            .ok_or(crate::Error::MalformedRemainingLength)?;
 
         if (byte & 0x80) == 0 {
             return Ok(remaining_len);
         }
 
-        if bytes_read > 3 {
+        if bytes_read >= 4 {
             return Err(crate::Error::MalformedRemainingLength);
         }
+
+        multiplier *= 128;
     }
 }
 
-async fn read_one_byte<R: Read>(read: &mut R) -> Result<u8, crate::Error> {
+async fn read_u8<R: Read>(read: &mut R) -> Result<u8, crate::Error> {
     let mut buf = [0u8; 1];
     read.read_exact(&mut buf)
         .await
@@ -57,108 +220,30 @@ async fn read_one_byte<R: Read>(read: &mut R) -> Result<u8, crate::Error> {
     Ok(buf[0])
 }
 
-// fn parse_remaining_len_bytes(
-//     remaining: &mut Remaining,
-//     byte: u8,
-// ) -> Result<Option<FixedHeader>, crate::Error> {
+async fn read_u16<R: Read>(read: &mut R) -> Result<u16, crate::Error> {
+    let mut buf = [0u8; 2];
+    read.read_exact(&mut buf)
+        .await
+        .map_err(|_| crate::Error::TransportError)?;
 
-//
+    Ok(u16::from_be_bytes(buf))
+}
 
-// }
+async fn read_binary<'p, R: Read, P: buffer::Provider<'p>>(
+    read: &mut R,
+    buf_provider: &mut P,
+) -> Result<&'p mut [u8], crate::Error> {
+    let len = read_u16(read).await? as usize;
+    let buf = buf_provider
+        .provide(len)
+        .map_err(|_| crate::Error::BufferTooSmall)?;
 
-// pub struct Parser {
-//     state: State,
-// }
+    read.read_exact(buf)
+        .await
+        .map_err(|_| crate::Error::TransportError)?;
 
-// pub(crate) enum State {
-//     Start,
-//     RemainingLen(Remaining),
-//     Body { remaining: u32 },
-// }
-
-// pub(crate) struct Remaining {
-//     packet_type: PacketType,
-//     flags: u8,
-//     multiplier: u32,
-//     value: u32,
-//     bytes_read: u8,
-// }
-
-// impl Remaining {
-//     const fn new(packet_type: PacketType, flags: u8) -> Self {
-//         Self {
-//             packet_type,
-//             flags,
-//             multiplier: 1,
-//             value: 0,
-//             bytes_read: 0,
-//         }
-//     }
-// }
-
-// #[derive(Debug)]
-// pub enum Event<'a> {
-//     PacketStart { header: FixedHeader },
-//     PacketBody { chunk: &'a [u8] },
-//     PacketEnd,
-// }
-
-// impl Parser {
-//     pub const fn new() -> Self {
-//         Self {
-//             state: State::Start,
-//         }
-//     }
-
-//     pub fn parse<'a>(
-//         &mut self,
-//         input: &'a [u8],
-//     ) -> Result<(usize, Option<Event<'a>>), crate::Error> {
-//         match &mut self.state {
-//             State::Start => {
-//                 if input.is_empty() {
-//                     return Ok((0, None));
-//                 }
-
-//                 let (packet_type, flags) = parse_first_byte(input[0])?;
-//                 self.state = State::RemainingLen(Remaining::new(packet_type, flags));
-
-//                 Ok((1, None))
-//             }
-//             State::RemainingLen(remaining) => {
-//                 if input.is_empty() {
-//                     return Ok((0, None));
-//                 }
-
-//                 if let Some(header) = parse_remaining_len_bytes(remaining, input[0])? {
-//                     self.state = State::Body {
-//                         remaining: remaining.value,
-//                     };
-
-//                     return Ok((1, Some(Event::PacketStart { header })));
-//                 };
-
-//                 Ok((1, None))
-//             }
-//             State::Body { remaining } => {
-//                 if *remaining == 0 {
-//                     self.state = State::Start;
-//                     return Ok((0, Some(Event::PacketEnd)));
-//                 }
-
-//                 if input.is_empty() {
-//                     return Ok((0, None));
-//                 }
-
-//                 let take = core::cmp::min(*remaining as usize, input.len());
-//                 let chunk = &input[..take];
-//                 *remaining -= take as u32;
-
-//                 Ok((take, Some(Event::PacketBody { chunk })))
-//             }
-//         }
-//     }
-// }
+    Ok(buf)
+}
 
 // #[cfg(test)]
 // mod tests {
