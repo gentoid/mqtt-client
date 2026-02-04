@@ -1,4 +1,4 @@
-use crate::packet::{PacketId, QoS};
+use crate::packet::PacketId;
 
 enum Kind {
     Sub,
@@ -42,7 +42,7 @@ impl<const N_PUB_OUT: usize, const N_SUB: usize> PacketIdPool<N_PUB_OUT, N_SUB> 
         self.next_id = 1;
     }
 
-    pub(crate) fn next_pub_id(&mut self, qos: QoS) -> Result<PacketId, crate::Error> {
+    pub(crate) fn next_pub_id(&mut self, just_ack: bool) -> Result<PacketId, crate::Error> {
         let index = self.in_flight_pub.iter().position(|p| p.is_none());
 
         if index.is_none() {
@@ -52,10 +52,9 @@ impl<const N_PUB_OUT: usize, const N_SUB: usize> PacketIdPool<N_PUB_OUT, N_SUB> 
         let id = PacketId(self.next_id()?);
         let index = index.unwrap();
 
-        let state = match qos {
-            QoS::AtMostOnce => return Err(crate::Error::ProtocolViolation),
-            QoS::AtLeastOnce => PubInFlightState::AwaitPubAck,
-            QoS::ExactlyOnce => PubInFlightState::AwaitPubRec,
+        let state = match just_ack {
+            true => PubInFlightState::AwaitPubAck,
+            false => PubInFlightState::AwaitPubRec,
         };
 
         self.in_flight_pub[index] = Some(PubInFlight { id, state });
@@ -127,7 +126,11 @@ impl<const N_PUB_OUT: usize, const N_SUB: usize> PacketIdPool<N_PUB_OUT, N_SUB> 
         }
     }
 
-    pub(crate) fn release_pub_id(&mut self, packet_id: &PacketId, qos: QoS) -> Result<(), crate::Error> {
+    pub(crate) fn release_pub_id(
+        &mut self,
+        packet_id: &PacketId,
+        just_ack: bool,
+    ) -> Result<(), crate::Error> {
         let compare_pub =
             |publ: &Option<PubInFlight>| publ.as_ref().map(|p| p.id == *packet_id).unwrap_or(false);
 
@@ -138,17 +141,14 @@ impl<const N_PUB_OUT: usize, const N_SUB: usize> PacketIdPool<N_PUB_OUT, N_SUB> 
                     .ok_or(crate::Error::ProtocolViolation)?;
                 let state = &publ.state;
 
-                if qos == QoS::AtLeastOnce && *state == PubInFlightState::AwaitPubAck {
-                    self.in_flight_pub[index] = None;
-                    return Ok(());
+                match (just_ack, state) {
+                    (true, PubInFlightState::AwaitPubAck)
+                    | (false, PubInFlightState::AwaitPubComp) => {
+                        self.in_flight_pub[index] = None;
+                        Ok(())
+                    }
+                    _ => Err(crate::Error::ProtocolViolation),
                 }
-
-                if qos == QoS::ExactlyOnce && *state == PubInFlightState::AwaitPubComp {
-                    self.in_flight_pub[index] = None;
-                    return Ok(());
-                }
-
-                Err(crate::Error::ProtocolViolation)
             }
             None => Err(crate::Error::ProtocolViolation),
         }
