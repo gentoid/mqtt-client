@@ -25,4 +25,6 @@ pub enum Error {
     BufferTooSmall,
     TimeError,
     TimedOut,
+    ProtocolViolation,
+    NoPacketIdAvailable,
 }
