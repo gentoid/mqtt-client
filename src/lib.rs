@@ -29,4 +29,5 @@ pub enum Error {
     NoPacketIdAvailable,
     SubVectorIsFull,
     WrongTopicToUnsubscribe,
+    Unsubscribed,
 }

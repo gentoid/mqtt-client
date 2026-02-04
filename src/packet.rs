@@ -105,8 +105,9 @@ fn encode_packet<P: encode::EncodePacket>(
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum QoS {
+    #[default]
     AtMostOnce = 0,
     AtLeastOnce = 1,
     ExactlyOnce = 2,
@@ -146,7 +147,7 @@ impl<'buf> decode::Decode<'buf> for QoS {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PacketId(u16);
+pub struct PacketId(pub u16);
 
 impl TryFrom<u16> for PacketId {
     type Error = crate::Error;
