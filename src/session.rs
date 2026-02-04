@@ -1,4 +1,12 @@
-use crate::packet::{Packet, PacketId, connect::ConnAck, publish::Publish, subscribe::SubAck};
+use heapless::Vec;
+
+use crate::packet::{
+    Packet, PacketId, QoS,
+    connect::ConnAck,
+    publish::Publish,
+    subscribe::{self, SubAck, Subscribe},
+    unsubscribe::Unsubscribe,
+};
 
 #[derive(PartialEq)]
 enum State {
@@ -11,7 +19,6 @@ pub(crate) enum Action<'a> {
     Send(Packet<'a>),
     Event(Event<'a>),
     Nothing,
-    ProtocolError,
 }
 
 pub enum Event<'a> {
@@ -22,20 +29,34 @@ pub enum Event<'a> {
     Published,
 }
 
-pub(crate) struct Session<
-    const N_PUB_IN: usize,
-    const N_PUB_OUT: usize,
-    const N_SUB: usize,
-    const N_UNSUB: usize,
-> {
+struct Subscription<'s> {
+    topic: &'s str,
+    qos: QoS,
+    active: bool,
+    unsub_packet_id: Option<PacketId>,
+}
+
+impl<'a> Subscription<'a> {
+    pub fn new(topic: &'a str, qos: Option<QoS>) -> Self {
+        Self {
+            topic,
+            qos: qos.unwrap_or_default(),
+            active: false,
+            unsub_packet_id: None,
+        }
+    }
+}
+
+pub(crate) struct Session<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize> {
     state: State,
     session_present: bool,
     ping_outstanding: bool,
-    pool: PacketIdPool<N_PUB_OUT, N_SUB, N_UNSUB>,
+    pool: PacketIdPool<N_PUB_OUT, N_SUB>,
+    subscriptions: Vec<Subscription<'s>, N_SUB>,
 }
 
-impl<const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize, const N_UNSUB: usize>
-    Session<N_PUB_IN, N_PUB_OUT, N_SUB, N_UNSUB>
+impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
+    Session<'s, N_PUB_IN, N_PUB_OUT, N_SUB>
 {
     pub(crate) fn new() -> Self {
         Self {
@@ -43,6 +64,7 @@ impl<const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize, const N_
             session_present: false,
             ping_outstanding: false,
             pool: PacketIdPool::new(),
+            subscriptions: Vec::new(),
         }
     }
 
@@ -57,15 +79,43 @@ impl<const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize, const N_
         todo!()
     }
 
-    pub(crate) fn subscribe<'a>(&mut self, sub: Subscribe<'a>) -> Result<Action<'a>, crate::Error> {
-        todo!()
+    pub(crate) fn subscribe<'a>(
+        &mut self,
+        sub: Subscription<'a>,
+    ) -> Result<Action<'a>, crate::Error> {
+        let id = self.pool.next_sub_id()?;
+        self.subscriptions
+            .push(sub)
+            .map_err(|_| crate::Error::SubVectorIsFull)?;
+
+        let mut topics: Vec<subscribe::Subscription<'a>, 16> = Vec::new();
+        topics.push(subscribe::Subscription {
+            topic_filter: sub.topic,
+            qos: sub.qos,
+        })?;
+
+        Ok(Action::Send(Packet::Subscribe(Subscribe {
+            packet_id: id,
+            topics,
+        })))
     }
 
     pub(crate) fn unsubscribe<'a>(
         &mut self,
-        unsub: Unsubscribe<'a>,
+        unsub_topic: &'a str,
     ) -> Result<Action<'a>, crate::Error> {
-        todo!()
+        let mut sub = self
+            .subscriptions
+            .iter()
+            .find(|sub| sub.topic == unsub_topic)
+            .ok_or(crate::Error::WrongTopicToUnsubscribe)?;
+        let packet_id = self.pool.next_unsub_id()?;
+
+        sub.unsub_packet_id = Some(packet_id);
+        Ok(Action::Send(Packet::Unsubscribe(Unsubscribe {
+            packet_id,
+            topics: (),
+        })))
     }
 
     pub(crate) fn disconnect(&mut self) -> Action {
@@ -156,7 +206,7 @@ impl<const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize, const N_
             return Err(crate::Error::ProtocolViolation);
         }
 
-        self.pool.release_sub_id(packet.packet_id)?;
+        self.pool.release_sub_id(&packet.packet_id)?;
         Ok(Action::Event(Event::Subscribed))
     }
 
@@ -165,7 +215,10 @@ impl<const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize, const N_
             return Err(crate::Error::ProtocolViolation);
         }
 
-        // @todo update current subs
+        self.pool.release_unsub_id(packet_id)?;
+        self.subscriptions
+            .retain(|sub| sub.unsub_packet_id != Some(*packet_id));
+
         Ok(Action::Event(Event::Unsubscribed))
     }
 
@@ -185,21 +238,19 @@ enum Kind {
     Unsub,
 }
 
-struct PacketIdPool<const N_PUB_OUT: usize, const N_SUB: usize, const N_UNSUB: usize> {
+struct PacketIdPool<const N_PUB_OUT: usize, const N_SUB: usize> {
     in_flight_pub: [u16; N_PUB_OUT],
     in_flight_sub: [u16; N_SUB],
-    in_flight_unsub: [u16; N_UNSUB],
+    in_flight_unsub: [u16; N_SUB],
     next_id: u16,
 }
 
-impl<const N_PUB_OUT: usize, const N_SUB: usize, const N_UNSUB: usize>
-    PacketIdPool<N_PUB_OUT, N_SUB, N_UNSUB>
-{
+impl<const N_PUB_OUT: usize, const N_SUB: usize> PacketIdPool<N_PUB_OUT, N_SUB> {
     fn new() -> Self {
         Self {
             in_flight_pub: [0u16; N_PUB_OUT],
             in_flight_sub: [0u16; N_SUB],
-            in_flight_unsub: [0u16; N_UNSUB],
+            in_flight_unsub: [0u16; N_SUB],
             next_id: 1,
         }
     }
@@ -258,19 +309,19 @@ impl<const N_PUB_OUT: usize, const N_SUB: usize, const N_UNSUB: usize>
         Err(crate::Error::NoPacketIdAvailable)
     }
 
-    fn release_pub_id(&mut self, packet_id: PacketId) -> Result<(), crate::Error> {
+    fn release_pub_id(&mut self, packet_id: &PacketId) -> Result<(), crate::Error> {
         self.release_for(Kind::Pub, packet_id)
     }
 
-    fn release_sub_id(&mut self, packet_id: PacketId) -> Result<(), crate::Error> {
+    fn release_sub_id(&mut self, packet_id: &PacketId) -> Result<(), crate::Error> {
         self.release_for(Kind::Sub, packet_id)
     }
 
-    fn release_unsub_id(&mut self, packet_id: PacketId) -> Result<(), crate::Error> {
+    fn release_unsub_id(&mut self, packet_id: &PacketId) -> Result<(), crate::Error> {
         self.release_for(Kind::Unsub, packet_id)
     }
 
-    fn release_for(&mut self, kind: Kind, packet_id: PacketId) -> Result<(), crate::Error> {
+    fn release_for(&mut self, kind: Kind, packet_id: &PacketId) -> Result<(), crate::Error> {
         let array = self.array_mut(&kind);
 
         match array.iter().position(|id| *id == packet_id.0) {

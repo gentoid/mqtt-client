@@ -27,4 +27,6 @@ pub enum Error {
     TimedOut,
     ProtocolViolation,
     NoPacketIdAvailable,
+    SubVectorIsFull,
+    WrongTopicToUnsubscribe,
 }
