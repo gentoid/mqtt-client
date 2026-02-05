@@ -374,14 +374,14 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Event(Event::Unsubscribed))
     }
 
-    pub(crate) fn on_pingreq(&self) -> Action {
+    pub(crate) fn on_pingreq(&self) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
-        Action::Send(Packet::PingResp)
+        Ok(Action::Send(Packet::PingResp))
     }
 
-    pub(crate) fn on_pingresp(&mut self) -> Action {
+    pub(crate) fn on_pingresp(&mut self) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.ping_outstanding = false;
-        Action::Nothing
+        Ok(Action::Nothing)
     }
 }
