@@ -136,10 +136,10 @@ impl<const N_PUB_OUT: usize, const N_SUB: usize> PacketIdPool<N_PUB_OUT, N_SUB> 
 
         match self.in_flight_pub.iter().position(compare_pub) {
             Some(index) => {
-                let publ = self.in_flight_pub[index]
+                let entry = self.in_flight_pub[index]
                     .as_ref()
                     .ok_or(crate::Error::ProtocolViolation)?;
-                let state = &publ.state;
+                let state = &entry.state;
 
                 match (just_ack, state) {
                     (true, PubInFlightState::AwaitPubAck)
