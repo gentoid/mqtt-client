@@ -8,6 +8,7 @@ pub mod parser;
 pub mod protocol;
 pub(crate) mod session;
 pub(crate) mod packet_id_pool;
+pub(crate) mod incoming;
 
 #[derive(Debug)]
 pub enum Error {
