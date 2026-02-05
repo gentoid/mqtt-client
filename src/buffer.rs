@@ -112,7 +112,6 @@ impl<'buf> From<&'buf mut [u8]> for String<'buf> {
     }
 }
 
-#[cfg(test)]
 impl<'buf> From<&'buf str> for String<'buf> {
     fn from(value: &'buf str) -> Self {
         Self {

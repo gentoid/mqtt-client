@@ -10,9 +10,18 @@ use crate::{
     protocol::PacketType,
 };
 
-pub struct Unsubscribe<'a, const N: usize = 16> {
+pub struct Unsubscribe<'a, const N: usize = 1> {
     pub packet_id: PacketId,
     pub topics: Vec<buffer::String<'a>, N>,
+}
+
+impl<'a, const N: usize> Unsubscribe<'a, N> {
+    pub(crate) fn single(packet_id: PacketId, topic: &'a str) -> Self {
+        let mut topics = Vec::new();
+        topics.push(buffer::String::from(topic));
+
+        Self { packet_id, topics }
+    }
 }
 
 impl<'a, const P: usize> encode::EncodePacket for &Unsubscribe<'a, P> {

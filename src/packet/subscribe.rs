@@ -8,11 +8,25 @@ use crate::{
         encode::{self, Encode},
     },
     protocol::PacketType,
+    session,
 };
 
-pub struct Subscribe<'a, const N: usize = 16> {
+pub struct Subscribe<'a, const N: usize = 1> {
     pub packet_id: PacketId,
     pub topics: Vec<Subscription<'a>, N>,
+}
+
+impl<'a> Subscribe<'a> {
+    pub(crate) fn single(packet_id: PacketId, sub: session::Subscription<'a>) -> Self {
+        let mut topics = Vec::new();
+
+        topics.push(Subscription {
+            topic_filter: buffer::String::from(sub.topic),
+            qos: sub.qos,
+        });
+
+        Self { packet_id, topics }
+    }
 }
 
 impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {

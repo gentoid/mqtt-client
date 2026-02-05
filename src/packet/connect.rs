@@ -8,6 +8,22 @@ use crate::{
     protocol::PacketType,
 };
 
+pub struct Options<'a> {
+    pub clean_session: bool,
+    pub keep_alive: u16,
+    pub client_id: &'a str,
+    pub will: Option<WillOptions<'a>>,
+    pub username: Option<&'a str>,
+    pub password: Option<&'a str>,
+}
+
+pub struct WillOptions<'a> {
+    pub qos: QoS,
+    pub retain: bool,
+    pub topic: &'a str,
+    pub payload: &'a [u8],
+}
+
 #[derive(Debug)]
 pub struct Connect<'a> {
     pub clean_session: bool,
@@ -16,6 +32,12 @@ pub struct Connect<'a> {
     pub will: Option<Will<'a>>,
     pub username: Option<buffer::String<'a>>,
     pub password: Option<buffer::Slice<'a>>,
+}
+
+impl <'a, 'b> From<Options<'a>> for Connect<'b> {
+    fn from(value: Options<'a>) -> Self {
+        todo!()
+    }
 }
 
 impl<'buf, P> decode::DecodePacket<'buf, P> for Connect<'buf>

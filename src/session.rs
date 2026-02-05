@@ -1,11 +1,11 @@
 use heapless::Vec;
 
 use crate::{
-    incoming,
+    buffer, incoming,
     packet::{
         Packet, PacketId, QoS,
         connect::{self, ConnAck},
-        publish::Publish,
+        publish,
         subscribe::{self, SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
@@ -27,14 +27,14 @@ pub(crate) enum Action<'a> {
 
 pub enum Event<'a> {
     Connected,
-    Received(&'a Publish<'a>),
+    Received(&'a publish::Publish<'a>),
     Subscribed,
     SubscribeFailed,
     Unsubscribed,
     Published,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 enum SubState {
     New,
     Pending(PacketId),
@@ -43,9 +43,10 @@ enum SubState {
     Failed,
 }
 
-struct Subscription<'s> {
-    topic: &'s str,
-    qos: QoS,
+#[derive(Clone)]
+pub(crate) struct Subscription<'s> {
+    pub(crate) topic: &'s str,
+    pub(crate) qos: QoS,
     state: SubState,
 }
 
@@ -57,6 +58,13 @@ impl<'a> Subscription<'a> {
             state: SubState::New,
         }
     }
+}
+
+pub struct Publish<'a> {
+    pub qos: QoS,
+    pub retain: bool,
+    pub topic: &'a str,
+    pub payload: &'a [u8],
 }
 
 pub(crate) struct Session<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize> {
@@ -116,52 +124,86 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Event(Event::Connected))
     }
 
-    pub(crate) fn publish<'a>(
-        &mut self,
-        msg: OutgoingPublish<'a>,
-    ) -> Result<Action<'a>, crate::Error> {
-        todo!()
+    pub(crate) fn publish<'a>(&mut self, msg: Publish<'a>) -> Result<Action<'a>, crate::Error> {
+        self.ensure_state(State::Connected)?;
+
+        let mut packet = publish::Publish {
+            flags: publish::Flags {
+                dup: false,
+                qos: msg.qos,
+                retain: msg.retain,
+            },
+            topic: buffer::String::from(msg.topic),
+            packet_id: None,
+            payload: buffer::Slice::from(msg.payload),
+        };
+
+        match msg.qos {
+            QoS::AtMostOnce => Ok(Action::Send(Packet::Publish(packet))),
+            QoS::AtLeastOnce | QoS::ExactlyOnce => {
+                let packet_id = self.pool.next_pub_id(msg.qos == QoS::AtLeastOnce)?;
+                packet.packet_id = Some(packet_id);
+
+                Ok(Action::Send(Packet::Publish(packet)))
+            }
+        }
     }
 
-    pub(crate) fn subscribe<'a>(
+    pub(crate) fn subscribe(
         &mut self,
-        mut sub: Subscription<'a>,
-    ) -> Result<Action<'a>, crate::Error> {
-        let id = self.pool.next_sub_id()?;
+        mut sub: Subscription<'s>,
+    ) -> Result<Action<'s>, crate::Error> {
+        self.ensure_state(State::Connected)?;
 
+        if let Some(existing) = self.subscriptions.iter_mut().find(|s| s.topic == sub.topic) {
+            match existing.state {
+                SubState::Active | SubState::Pending(_) => return Ok(Action::Nothing),
+                SubState::New | SubState::Failed => {
+                    existing.qos = sub.qos;
+                }
+                SubState::UnsubPending(_) => return Err(crate::Error::ProtocolViolation),
+            };
+
+            let id = self.pool.next_sub_id()?;
+            existing.state = SubState::Pending(id);
+
+            return Ok(Action::Send(Packet::Subscribe(Subscribe::single(
+                id,
+                existing.clone(),
+            ))));
+        }
+
+        let id = self.pool.next_sub_id()?;
         sub.state = SubState::Pending(id);
+
         self.subscriptions
-            .push(sub)
+            .push(sub.clone())
             .map_err(|_| crate::Error::SubVectorIsFull)?;
 
-        let mut topics: Vec<subscribe::Subscription<'a>, 16> = Vec::new();
-        topics.push(subscribe::Subscription {
-            topic_filter: sub.topic,
-            qos: sub.qos,
-        })?;
-
-        Ok(Action::Send(Packet::Subscribe(Subscribe {
-            packet_id: id,
-            topics,
-        })))
+        Ok(Action::Send(Packet::Subscribe(Subscribe::single(id, sub))))
     }
 
-    pub(crate) fn unsubscribe<'a>(
-        &mut self,
-        unsub_topic: &'a str,
-    ) -> Result<Action<'a>, crate::Error> {
-        let mut sub = self
+    pub(crate) fn unsubscribe<'a>(&mut self, topic: &'a str) -> Result<Action<'a>, crate::Error> {
+        self.ensure_state(State::Connected)?;
+
+        let sub = self
             .subscriptions
             .iter_mut()
-            .find(|sub| sub.topic == unsub_topic)
+            .find(|sub| sub.topic == topic)
             .ok_or(crate::Error::WrongTopicToUnsubscribe)?;
+
+        match sub.state {
+            SubState::Active => {}
+            SubState::UnsubPending(_) => return Ok(Action::Nothing),
+            _ => return Err(crate::Error::ProtocolViolation),
+        }
+
         let packet_id = self.pool.next_unsub_id()?;
 
         sub.state = SubState::UnsubPending(packet_id);
-        Ok(Action::Send(Packet::Unsubscribe(Unsubscribe {
-            packet_id,
-            topics: (),
-        })))
+
+        let unsub = Unsubscribe::single(packet_id, topic);
+        Ok(Action::Send(Packet::Unsubscribe(unsub)))
     }
 
     pub(crate) fn disconnect(&mut self) -> Action {
@@ -182,6 +224,8 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
     }
 
     pub(crate) fn ping(&mut self) -> Result<Action, crate::Error> {
+        self.ensure_state(State::Connected)?;
+
         if self.ping_outstanding {
             // @note or maybe ignore the request
             return Err(crate::Error::PingOutstanding);
@@ -201,15 +245,15 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn on_publish<'a>(
         &mut self,
-        packet: &'a Publish,
+        packet: &'a publish::Publish,
     ) -> Result<Action<'a>, crate::Error> {
-        self.publish(State::Connected)?;
+        self.ensure_state(State::Connected)?;
 
         if packet.flags.dup && packet.flags.qos == QoS::AtMostOnce {
             return Err(crate::Error::ProtocolViolation);
         }
 
-        let sub = self
+        let _ = self
             .subscriptions
             .iter()
             .find(|sub| sub.state == SubState::Active && sub.topic == packet.topic)
@@ -331,10 +375,12 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
     }
 
     pub(crate) fn on_pingreq(&self) -> Action {
+        self.ensure_state(State::Connected)?;
         Action::Send(Packet::PingResp)
     }
 
     pub(crate) fn on_pingresp(&mut self) -> Action {
+        self.ensure_state(State::Connected)?;
         self.ping_outstanding = false;
         Action::Nothing
     }
