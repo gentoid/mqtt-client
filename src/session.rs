@@ -32,6 +32,7 @@ pub enum Event<'a> {
     SubscribeFailed,
     Unsubscribed,
     Published,
+    Disconnected,
 }
 
 #[derive(Clone, PartialEq)]
@@ -304,7 +305,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Event(Event::Published))
     }
 
-    pub(crate) fn on_suback(&mut self, packet: &SubAck<16>) -> Result<Action, crate::Error> {
+    pub(crate) fn on_suback(&mut self, packet: &SubAck<1>) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.pool.release_sub_id(&packet.packet_id)?;
 
@@ -383,5 +384,22 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         self.ensure_state(State::Connected)?;
         self.ping_outstanding = false;
         Ok(Action::Nothing)
+    }
+
+    pub(crate) fn on_disconnect(&mut self) -> Action {
+        if self.state == State::Disconnected {
+            return Action::Nothing;
+        }
+
+        self.state = State::Disconnected;
+        self.pool.clear();
+        self.pub_inflight_in.clear();
+        self.ping_outstanding = false;
+
+        if !self.session_present {
+            self.subscriptions.clear();
+        }
+
+        Action::Event(Event::Disconnected)
     }
 }

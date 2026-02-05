@@ -8,7 +8,7 @@ use crate::{
     session::{self, Session},
 };
 
-pub struct Client<'c, C, T, P>
+pub struct Client<'c, C, T, P, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 where
     T: Read + Write,
     P: buffer::Provider<'c>,
@@ -18,10 +18,11 @@ where
     transport: T,
     provider: &'c mut P,
     keep_alive: KeepAlive<C>,
-    session: Session,
+    session: Session<'c, N_PUB_IN, N_PUB_OUT, N_SUB>,
 }
 
-impl<'c, C, T, P> Client<'c, C, T, P>
+impl<'c, C, T, P, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
+    Client<'c, C, T, P, N_PUB_IN, N_PUB_OUT, N_SUB>
 where
     T: Read + Write,
     P: buffer::Provider<'c>,
@@ -44,23 +45,24 @@ where
         })
     }
 
-    pub async fn poll<R: Read>(&'c mut self) -> Result<(), crate::Error> {
+    pub async fn poll(&'c mut self) -> Result<(), crate::Error> {
         let now = self.clock.try_now().map_err(|_| crate::Error::TimeError)?;
         let packet = read_packet::<T, P, 16>(&mut self.transport, &mut self.provider).await?;
 
-        self.keep_alive.on_activity(now);
+        self.keep_alive.update(now);
 
-        let action: session::Action = match &packet {
+        let action = match &packet {
             Packet::ConnAck(conn_ack) => self.session.on_connack(conn_ack)?,
-            Packet::Publish(publish) => self.session.on_publish(publish),
-            Packet::PubAck(packet_id) => self.session.on_puback(packet_id),
-            Packet::PubRec(packet_id) => self.session.on_pubrec(packet_id),
-            Packet::PubRel(packet_id) => self.session.on_pubrel(packet_id),
-            Packet::PubComp(packet_id) => self.session.on_pubcomp(packet_id),
-            Packet::SubAck(sub_ack) => self.session.on_suback(sub_ack),
-            Packet::UnsubAck(packet_id) => self.session.on_unsuback(packet_id),
-            Packet::PingReq => self.session.on_pingreq(),
-            Packet::PingResp => self.session.on_pingresp(),
+            Packet::Publish(publish) => self.session.on_publish(publish)?,
+            Packet::PubAck(packet_id) => self.session.on_puback(packet_id)?,
+            Packet::PubRec(packet_id) => self.session.on_pubrec(packet_id)?,
+            Packet::PubRel(packet_id) => self.session.on_pubrel(packet_id)?,
+            Packet::PubComp(packet_id) => self.session.on_pubcomp(packet_id)?,
+            Packet::SubAck(sub_ack) => self.session.on_suback(sub_ack)?,
+            Packet::UnsubAck(packet_id) => self.session.on_unsuback(packet_id)?,
+            Packet::PingReq => self.session.on_pingreq()?,
+            Packet::PingResp => self.session.on_pingresp()?,
+            Packet::Disconnect => self.session.on_disconnect(),
             _ => session::Action::Nothing,
         };
 
@@ -79,7 +81,6 @@ struct KeepAlive<C: embedded_time::Clock> {
     keep_alive: duration::Generic<C::T>,
     half_keep_alive: duration::Generic<C::T>,
     last_activity: Instant<C>,
-    ping_outstanding: bool,
 }
 
 impl<C> KeepAlive<C>
@@ -96,17 +97,19 @@ where
             keep_alive,
             half_keep_alive,
             last_activity: clock.try_now().map_err(|_| crate::Error::TimeError)?,
-            ping_outstanding: false,
+            // ping_outstanding: false,
         })
     }
 
-    fn on_activity(&mut self, now: Instant<C>) {
+    fn update(&mut self, now: Instant<C>) {
         self.last_activity = now;
-        self.ping_outstanding = false;
+        // self.ping_outstanding = false;
     }
 
     fn should_ping(&mut self, now: Instant<C>) -> Result<bool, crate::Error> {
-        if self.elapsed(now)? >= self.half_keep_alive && !self.ping_outstanding {
+        if self.elapsed(now)? >= self.half_keep_alive
+        /* && !self.ping_outstanding */
+        {
             // this changes on receiving PINGRESP
             // self.ping_outstanding = true;
             // self.last_activity = now;
@@ -117,9 +120,9 @@ where
     }
 
     fn timed_out(&self, now: Instant<C>) -> Result<bool, crate::Error> {
-        if !self.ping_outstanding {
-            return Ok(false);
-        }
+        // if !self.ping_outstanding {
+        //     return Ok(false);
+        // }
 
         Ok(self.elapsed(now)? >= self.keep_alive)
     }

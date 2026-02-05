@@ -149,7 +149,7 @@ async fn read_suback<'p, R: Read, const N: usize>(
     let packet_id = PacketId::try_from(read_u16(read).await?)?;
     remaining -= 2;
 
-    let mut return_codes = Vec::<SubAckReturnCode, N>::new();
+    let mut return_codes = Vec::<SubAckReturnCode, 1>::new();
 
     while remaining > 0 {
         let code = SubAckReturnCode::try_from(read_u8(read).await?)?;
@@ -220,7 +220,7 @@ async fn read_u8<R: Read>(read: &mut R) -> Result<u8, crate::Error> {
     Ok(buf[0])
 }
 
-async fn read_u16<R: Read>(read: &mut R) -> Result<u16, crate::Error> {
+pub(crate) async fn read_u16<R: Read>(read: &mut R) -> Result<u16, crate::Error> {
     let mut buf = [0u8; 2];
     read.read_exact(&mut buf)
         .await
