@@ -127,6 +127,12 @@ impl<'buf> PartialEq<&str> for String<'buf> {
     }
 }
 
+impl PartialEq<String<'_>> for &str {
+    fn eq(&self, other: &String<'_>) -> bool {
+        other.eq(self)
+    }
+}
+
 impl<'buf> encode::Encode for String<'buf> {
     fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         self.inner.encode(cursor)

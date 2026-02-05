@@ -32,4 +32,5 @@ pub enum Error {
     SubVectorIsFull,
     WrongTopicToUnsubscribe,
     Unsubscribed,
+    PingOutstanding,
 }

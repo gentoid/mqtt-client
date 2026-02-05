@@ -26,14 +26,29 @@ impl<const N_PUB_IN: usize> Publish<N_PUB_IN> {
         }
     }
 
-    pub(crate) fn track(&mut self, packet_id: &PacketId) -> Result<(), crate::Error> {
+    pub(crate) fn clear(&mut self) {
+        self.pubs.clear();
+        self.cursor = 0;
+    }
+
+    pub(crate) fn track(
+        &mut self,
+        packet_id: &PacketId,
+        just_ack: bool,
+    ) -> Result<(), crate::Error> {
         if self.pubs.iter().any(|p| p.id == *packet_id) {
             return Ok(());
         }
 
+        let state = if just_ack {
+            PubInState::Done
+        } else {
+            PubInState::AwaitPubRel
+        };
+
         let entry = PubInFlightIn {
             id: *packet_id,
-            state: PubInState::AwaitPubRel,
+            state,
         };
 
         if !self.pubs.is_full() {
@@ -57,11 +72,7 @@ impl<const N_PUB_IN: usize> Publish<N_PUB_IN> {
     }
 
     fn shift_cursor(&mut self) {
-        self.cursor += 1;
-
-        if self.cursor >= N_PUB_IN {
-            self.cursor = 0;
-        }
+        self.cursor = (self.cursor + 1) % N_PUB_IN;
     }
 
     pub(crate) fn mark_complete(&mut self, packet_id: &PacketId) -> Result<(), crate::Error> {

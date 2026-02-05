@@ -1,9 +1,10 @@
 use heapless::Vec;
 
 use crate::{
+    incoming,
     packet::{
         Packet, PacketId, QoS,
-        connect::ConnAck,
+        connect::{self, ConnAck},
         publish::Publish,
         subscribe::{self, SubAck, Subscribe},
         unsubscribe::Unsubscribe,
@@ -64,6 +65,7 @@ pub(crate) struct Session<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, con
     ping_outstanding: bool,
     pool: PacketIdPool<N_PUB_OUT, N_SUB>,
     subscriptions: Vec<Subscription<'s>, N_SUB>,
+    pub_inflight_in: incoming::Publish<N_PUB_IN>,
 }
 
 impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
@@ -76,11 +78,42 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
             ping_outstanding: false,
             pool: PacketIdPool::new(),
             subscriptions: Vec::new(),
+            pub_inflight_in: incoming::Publish::new(),
         }
     }
 
-    pub(crate) fn connect(&mut self, opts: ConnectOptions) -> Result<Action, crate::Error> {
-        todo!()
+    pub(crate) fn connect(
+        &'s mut self,
+        opts: connect::Connect<'s>,
+    ) -> Result<Action, crate::Error> {
+        self.ensure_state(State::Disconnected);
+
+        self.state = State::Connecting;
+        self.ping_outstanding = false;
+        self.session_present = false;
+
+        self.pool.clear();
+
+        if opts.clean_session {
+            self.subscriptions.clear();
+        }
+
+        Ok(Action::Send(Packet::Connect(opts)))
+    }
+
+    pub(crate) fn on_connack(&mut self, packet: &ConnAck) -> Result<Action, crate::Error> {
+        self.ensure_state(State::Connecting)?;
+
+        self.state = State::Connected;
+        self.session_present = packet.session_present;
+
+        self.pool.clear();
+
+        if !packet.session_present {
+            self.subscriptions.clear();
+        }
+
+        Ok(Action::Event(Event::Connected))
     }
 
     pub(crate) fn publish<'a>(
@@ -132,16 +165,30 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
     }
 
     pub(crate) fn disconnect(&mut self) -> Action {
-        todo!()
+        if self.state == State::Disconnected {
+            return Action::Nothing;
+        }
+
+        self.state = State::Disconnected;
+        self.pool.clear();
+        self.pub_inflight_in.clear();
+        self.ping_outstanding = false;
+
+        if !self.session_present {
+            self.subscriptions.clear();
+        }
+
+        Action::Send(Packet::Disconnect)
     }
 
-    pub(crate) fn ping(&mut self) -> Action {
+    pub(crate) fn ping(&mut self) -> Result<Action, crate::Error> {
         if self.ping_outstanding {
-            // @todo is it a protocol error?
+            // @note or maybe ignore the request
+            return Err(crate::Error::PingOutstanding);
         }
 
         self.ping_outstanding = true;
-        Action::Send(Packet::PingReq)
+        Ok(Action::Send(Packet::PingReq))
     }
 
     fn ensure_state(&self, state: State) -> Result<(), crate::Error> {
@@ -150,23 +197,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
 
         Ok(())
-    }
-
-    pub(crate) fn on_connack(&mut self, packet: &ConnAck) -> Result<Action, crate::Error> {
-        self.ensure_state(State::Connecting)?;
-
-        self.state = State::Connected;
-        self.session_present = packet.session_present;
-
-        self.pool.clear();
-
-        if !packet.session_present {
-            self.subscriptions.clear();
-        }
-
-        // @todo re-subscribe
-
-        Ok(Action::Event(Event::Connected))
     }
 
     pub(crate) fn on_publish<'a>(
@@ -188,21 +218,14 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         match packet.flags.qos {
             QoS::AtMostOnce => Ok(Action::Event(Event::Received(packet))),
             QoS::AtLeastOnce => {
-                let id = match packet.packet_id {
-                    Some(id) => id,
-                    None => return Err(crate::Error::ProtocolViolation),
-                };
+                let id = packet.packet_id.ok_or(crate::Error::ProtocolViolation)?;
+                self.pub_inflight_in.track(&id, true)?;
 
-                // @todo note somewhere that we've processed this case?
                 Ok(Action::Send(Packet::PubAck(id)))
             }
             QoS::ExactlyOnce => {
-                let id = match packet.packet_id {
-                    Some(id) => id,
-                    None => return Err(crate::Error::ProtocolViolation),
-                };
-
-                // store id - waiting for PUBCOMP
+                let id = packet.packet_id.ok_or(crate::Error::ProtocolViolation)?;
+                self.pub_inflight_in.track(&id, false)?;
 
                 Ok(Action::Send(Packet::PubRec(id)))
             }
@@ -225,10 +248,9 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn on_pubrel(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
+        self.pub_inflight_in.mark_complete(packet_id)?;
 
-        // @todo update inflight pubs
-
-        Ok(Action::Event(Event::Published))
+        Ok(Action::Send(Packet::PubComp(*packet_id)))
     }
 
     pub(crate) fn on_pubcomp(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
@@ -250,13 +272,15 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
             return Err(crate::Error::UnsupportedIncomingPacket);
         }
 
-        debug_assert_eq!(
-            self.subscriptions
-                .iter()
-                .filter(|s| s.state == SubState::Pending(packet.packet_id))
-                .count(),
-            1
-        );
+        if self
+            .subscriptions
+            .iter()
+            .filter(|sub| sub.state == SubState::Pending(packet.packet_id))
+            .count()
+            != 1
+        {
+            return Err(crate::Error::ProtocolViolation);
+        }
 
         let sub = self
             .subscriptions
@@ -291,8 +315,17 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         self.ensure_state(State::Connected)?;
 
         self.pool.release_unsub_id(packet_id)?;
-        self.subscriptions
-            .retain(|sub| sub.state != SubState::UnsubPending(*packet_id));
+
+        let removed = {
+            let before = self.subscriptions.len();
+            self.subscriptions
+                .retain(|sub| sub.state != SubState::UnsubPending(*packet_id));
+            before - self.subscriptions.len()
+        };
+
+        if removed != 1 {
+            return Err(crate::Error::ProtocolViolation);
+        }
 
         Ok(Action::Event(Event::Unsubscribed))
     }
