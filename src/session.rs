@@ -39,6 +39,7 @@ enum SubState {
     Pending(PacketId),
     Active,
     UnsubPending(PacketId),
+    Failed,
 }
 
 struct Subscription<'s> {
@@ -91,9 +92,11 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn subscribe<'a>(
         &mut self,
-        sub: Subscription<'a>,
+        mut sub: Subscription<'a>,
     ) -> Result<Action<'a>, crate::Error> {
         let id = self.pool.next_sub_id()?;
+
+        sub.state = SubState::Pending(id);
         self.subscriptions
             .push(sub)
             .map_err(|_| crate::Error::SubVectorIsFull)?;
@@ -116,12 +119,12 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
     ) -> Result<Action<'a>, crate::Error> {
         let mut sub = self
             .subscriptions
-            .iter()
+            .iter_mut()
             .find(|sub| sub.topic == unsub_topic)
             .ok_or(crate::Error::WrongTopicToUnsubscribe)?;
         let packet_id = self.pool.next_unsub_id()?;
 
-        sub.unsub_packet_id = Some(packet_id);
+        sub.state = SubState::UnsubPending(packet_id);
         Ok(Action::Send(Packet::Unsubscribe(Unsubscribe {
             packet_id,
             topics: (),
@@ -136,6 +139,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         if self.ping_outstanding {
             // @todo is it a protocol error?
         }
+
         self.ping_outstanding = true;
         Action::Send(Packet::PingReq)
     }
@@ -207,17 +211,16 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn on_puback(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
-        self.pool.release_pub_id(packet_id, QoS::AtLeastOnce)?;
+        self.pool.release_pub_id(packet_id, true)?;
 
         Ok(Action::Event(Event::Published))
     }
 
     pub(crate) fn on_pubrec(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
+        self.pool.set_pubrel(packet_id)?;
 
-        // @todo update inflight pubs
-
-        Ok(Action::Event(Event::Published))
+        Ok(Action::Send(Packet::PubRel(*packet_id)))
     }
 
     pub(crate) fn on_pubrel(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
@@ -230,16 +233,15 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn on_pubcomp(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
-
-        // @todo update inflight pubs
+        self.pool.release_pub_id(packet_id, false)?;
 
         Ok(Action::Event(Event::Published))
     }
 
     pub(crate) fn on_suback(&mut self, packet: &SubAck<16>) -> Result<Action, crate::Error> {
         self.ensure_state(State::Connected)?;
-
         self.pool.release_sub_id(&packet.packet_id)?;
+
         if packet.return_codes.is_empty() {
             return Err(crate::Error::ProtocolViolation);
         }
@@ -279,7 +281,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
                 Ok(Action::Event(Event::Subscribed))
             }
             subscribe::SubAckReturnCode::Failure => {
-                sub.state = SubState::New;
+                sub.state = SubState::Failed;
                 Ok(Action::Event(Event::SubscribeFailed))
             }
         }
@@ -290,7 +292,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
         self.pool.release_unsub_id(packet_id)?;
         self.subscriptions
-            .retain(|sub| sub.unsub_packet_id != Some(*packet_id));
+            .retain(|sub| sub.state != SubState::UnsubPending(*packet_id));
 
         Ok(Action::Event(Event::Unsubscribed))
     }
