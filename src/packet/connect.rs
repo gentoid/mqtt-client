@@ -2,7 +2,6 @@ use crate::{
     buffer,
     packet::{
         QoS,
-        decode::{self, CursorExt},
         encode::{self, Encode},
     },
     protocol::PacketType,
@@ -34,88 +33,88 @@ pub struct Connect<'a> {
     pub password: Option<buffer::Slice<'a>>,
 }
 
-impl <'a, 'b> From<Options<'a>> for Connect<'b> {
+impl<'a, 'b> From<Options<'a>> for Connect<'b> {
     fn from(value: Options<'a>) -> Self {
         todo!()
     }
 }
 
-impl<'buf, P> decode::DecodePacket<'buf, P> for Connect<'buf>
-where
-    P: buffer::Provider<'buf>,
-{
-    fn decode(
-        cursor: &mut decode::Cursor,
-        provider: &'buf mut P,
-        _: u8,
-    ) -> Result<Self, crate::Error> {
-        let protocol_name = cursor.read_utf8(provider)?;
-        if protocol_name != "MQTT" {
-            return Err(crate::Error::MalformedPacket);
-        }
+// impl<'buf, P> decode::DecodePacket<'buf, P> for Connect<'buf>
+// where
+//     P: buffer::Provider<'buf>,
+// {
+//     fn decode(
+//         cursor: &mut decode::Cursor,
+//         provider: &'buf mut P,
+//         _: u8,
+//     ) -> Result<Self, crate::Error> {
+//         let protocol_name = cursor.read_utf8(provider)?;
+//         if protocol_name != "MQTT" {
+//             return Err(crate::Error::MalformedPacket);
+//         }
 
-        // @note: MQTT v3.1.1
-        let level = cursor.read_u8()?;
-        if level != 4 {
-            return Err(crate::Error::MalformedPacket);
-        }
+//         // @note: MQTT v3.1.1
+//         let level = cursor.read_u8()?;
+//         if level != 4 {
+//             return Err(crate::Error::MalformedPacket);
+//         }
 
-        let flags = cursor.read_u8()?;
-        if flags & 0b0000_0001 != 0 {
-            return Err(crate::Error::MalformedPacket);
-        }
+//         let flags = cursor.read_u8()?;
+//         if flags & 0b0000_0001 != 0 {
+//             return Err(crate::Error::MalformedPacket);
+//         }
 
-        let clean_session = flags & 0b0000_0010 == 1;
-        let will_flag = flags & 0b0000_0100 == 1;
-        let qos = QoS::try_from((flags >> 3) & 0b11)?;
-        let retain = flags & 0b0010_0000 == 1;
-        let password_flag = flags & 0b0100_0000 == 1;
-        let username_flag = flags & 0b1000_0000 == 1;
+//         let clean_session = flags & 0b0000_0010 == 1;
+//         let will_flag = flags & 0b0000_0100 == 1;
+//         let qos = QoS::try_from((flags >> 3) & 0b11)?;
+//         let retain = flags & 0b0010_0000 == 1;
+//         let password_flag = flags & 0b0100_0000 == 1;
+//         let username_flag = flags & 0b1000_0000 == 1;
 
-        let keep_alive = cursor.read_u16()?;
+//         let keep_alive = cursor.read_u16()?;
 
-        // @todo: validate client id (see 3.1.3.1 Client Identifier of the MQTT 3.1.1 spec)
-        let len = cursor.read_u16()? as usize;
-        let mut buf = provider
-            .provide(len)
-            .map_err(|_| crate::Error::UnexpectedEof)?;
-        cursor.consume(buf.as_mut())?;
+//         // @todo: validate client id (see 3.1.3.1 Client Identifier of the MQTT 3.1.1 spec)
+//         let len = cursor.read_u16()? as usize;
+//         let mut buf = provider
+//             .provide(len)
+//             .map_err(|_| crate::Error::UnexpectedEof)?;
+//         cursor.consume(buf.as_mut())?;
 
-        let client_id = buffer::String::from(buf.into());
+//         let client_id = buffer::String::from(buf.into());
 
-        let will = if will_flag {
-            Some(Will {
-                topic: cursor.read_utf8(provider)?,
-                payload: cursor.read_binary(provider)?,
-                qos,
-                retain,
-            })
-        } else {
-            None
-        };
+//         let will = if will_flag {
+//             Some(Will {
+//                 topic: cursor.read_utf8(provider)?,
+//                 payload: cursor.read_binary(provider)?,
+//                 qos,
+//                 retain,
+//             })
+//         } else {
+//             None
+//         };
 
-        let username = if username_flag {
-            Some(cursor.read_utf8(provider)?)
-        } else {
-            None
-        };
+//         let username = if username_flag {
+//             Some(cursor.read_utf8(provider)?)
+//         } else {
+//             None
+//         };
 
-        let password = if password_flag {
-            Some(cursor.read_binary(provider)?)
-        } else {
-            None
-        };
+//         let password = if password_flag {
+//             Some(cursor.read_binary(provider)?)
+//         } else {
+//             None
+//         };
 
-        Ok(Connect {
-            clean_session,
-            keep_alive,
-            client_id,
-            will,
-            username,
-            password,
-        })
-    }
-}
+//         Ok(Connect {
+//             clean_session,
+//             keep_alive,
+//             client_id,
+//             will,
+//             username,
+//             password,
+//         })
+//     }
+// }
 
 impl<'buf> encode::EncodePacket for &Connect<'buf> {
     const PACKET_TYPE: PacketType = PacketType::Connect;
@@ -192,29 +191,29 @@ pub struct ConnAck {
     pub return_code: ConnectReturnCode,
 }
 
-impl<'buf, P> decode::DecodePacket<'buf, P> for ConnAck
-where
-    P: buffer::Provider<'buf>,
-{
-    fn decode(cursor: &mut decode::Cursor, _: &mut P, _: u8) -> Result<Self, crate::Error> {
-        let flags = cursor.read_u8()?;
+// impl<'buf, P> decode::DecodePacket<'buf, P> for ConnAck
+// where
+//     P: buffer::Provider<'buf>,
+// {
+//     fn decode(cursor: &mut decode::Cursor, _: &mut P, _: u8) -> Result<Self, crate::Error> {
+//         let flags = cursor.read_u8()?;
 
-        if flags & 0b1111_1110 != 0 {
-            return Err(crate::Error::MalformedPacket);
-        }
+//         if flags & 0b1111_1110 != 0 {
+//             return Err(crate::Error::MalformedPacket);
+//         }
 
-        let return_code = ConnectReturnCode::try_from(cursor.read_u8()?)?;
+//         let return_code = ConnectReturnCode::try_from(cursor.read_u8()?)?;
 
-        let session_present = (flags & 0b0000_0001) == 1;
+//         let session_present = (flags & 0b0000_0001) == 1;
 
-        cursor.expect_empty()?;
+//         cursor.expect_empty()?;
 
-        Ok(ConnAck {
-            return_code,
-            session_present,
-        })
-    }
-}
+//         Ok(ConnAck {
+//             return_code,
+//             session_present,
+//         })
+//     }
+// }
 
 // @note: for MQTT 5.0 it is a whole another story
 #[repr(u8)]
@@ -248,38 +247,35 @@ impl TryFrom<u8> for ConnectReturnCode {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        buffer,
-        packet::{decode::DecodePacket, encode::EncodePacket},
-    };
+    use crate::{buffer, packet::encode::EncodePacket};
 
     use super::*;
 
-    #[test]
-    fn connack_accepted() {
-        let body = [0x00, 0x00];
-        let mut cursor = decode::Cursor::new(&body);
-        let mut buf = [0u8; 16];
-        let mut buf = buffer::Bump::new(&mut buf[..]);
-        let packet = ConnAck::decode(&mut cursor, &mut buf, 0).unwrap();
+    // #[test]
+    // fn connack_accepted() {
+    //     let body = [0x00, 0x00];
+    //     let mut cursor = decode::Cursor::new(&body);
+    //     let mut buf = [0u8; 16];
+    //     let mut buf = buffer::Bump::new(&mut buf[..]);
+    //     let packet = ConnAck::decode(&mut cursor, &mut buf, 0).unwrap();
 
-        assert!(matches!(
-            packet,
-            ConnAck {
-                session_present: false,
-                return_code: ConnectReturnCode::Accepted
-            }
-        ));
-    }
+    //     assert!(matches!(
+    //         packet,
+    //         ConnAck {
+    //             session_present: false,
+    //             return_code: ConnectReturnCode::Accepted
+    //         }
+    //     ));
+    // }
 
-    #[test]
-    fn connack_invalid_flags() {
-        let body = [0b0000_0010, 0x00];
-        let mut cursor = decode::Cursor::new(&body);
-        let mut buf = [0u8; 16];
-        let mut buf = buffer::Bump::new(&mut buf[..]);
-        assert!(ConnAck::decode(&mut cursor, &mut buf, 0).is_err());
-    }
+    // #[test]
+    // fn connack_invalid_flags() {
+    //     let body = [0b0000_0010, 0x00];
+    //     let mut cursor = decode::Cursor::new(&body);
+    //     let mut buf = [0u8; 16];
+    //     let mut buf = buffer::Bump::new(&mut buf[..]);
+    //     assert!(ConnAck::decode(&mut cursor, &mut buf, 0).is_err());
+    // }
 
     #[test]
     fn connect_encode_flags() {
@@ -368,25 +364,26 @@ mod tests {
         assert_eq!(&buf[50..50 + len], b"long-pass");
     }
 
-    #[test]
-    fn connect_with_invalid_flags() {
-        let bytes = [
-            0x00,        // "MQTT"
-            0x04,        // |
-            b'M',        // |
-            b'Q',        // |
-            b'T',        // |
-            b'T',        // ___
-            0x04,        // MQTT version
-            0b0000_0001, // Flags - invalid
-            0x00,        // keep_alive = 60
-            0x3C,        // ___
-        ];
-        let mut cursor = decode::Cursor::new(&bytes);
-        let mut buf = [0u8; 32];
-        let mut buf = buffer::Bump::new(&mut buf[..]);
-        let err = Connect::decode(&mut cursor, &mut buf, 0).unwrap_err();
+    // #[test]
+    // fn connect_with_invalid_flags() {
+    //     let bytes = [
+    //         0x00,        // "MQTT"
+    //         0x04,        // |
+    //         b'M',        // |
+    //         b'Q',        // |
+    //         b'T',        // |
+    //         b'T',        // ___
+    //         0x04,        // MQTT version
+    //         0b0000_0001, // Flags - invalid
+    //         0x00,        // keep_alive = 60
+    //         0x3C,        // ___
+    //     ];
+    //     let mut cursor = decode::Cursor::new(&bytes);
+    //     let mut buf = [0u8; 32];
+    //     let mut buf = buffer::Bump::new(&mut buf[..]);
+    //     read
+    //     // let err = Connect::decode(&mut cursor, &mut buf, 0).unwrap_err();
 
-        assert!(matches!(err, crate::Error::MalformedPacket));
-    }
+    //     assert!(matches!(err, crate::Error::MalformedPacket));
+    // }
 }

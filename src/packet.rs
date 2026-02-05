@@ -1,14 +1,11 @@
 use crate::{
-    buffer,
     packet::{
         connect::{ConnAck, Connect},
-        decode::{Decode, DecodePacket},
         encode::Encode,
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
-    parser,
-    protocol::{FixedHeader, PacketType},
+    protocol::{PacketType},
 };
 
 pub mod connect;
@@ -36,7 +33,7 @@ pub enum Packet<'a> {
 }
 
 impl<'buf> Packet<'buf> {
-    fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+    pub(crate) fn encode(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
         match self {
             Self::Connect(packet) => encode_packet(packet, cursor),
             Self::Publish(packet) => encode_packet(packet, cursor),
@@ -49,47 +46,47 @@ impl<'buf> Packet<'buf> {
         }
     }
 
-    fn decode<'cursor, P: buffer::Provider<'buf>>(
-        header: &FixedHeader,
-        cursor: &'cursor mut decode::Cursor<'buf>,
-        provider: &'buf mut P,
-    ) -> Result<Self, crate::Error> {
-        // @todo this looks wrong
-        if header.remaining_len as usize != cursor.remaining() {
-            return Err(crate::Error::MalformedPacket);
-        }
+    // pub(crate) fn decode<P: buffer::Provider<'buf>>(
+    //     header: &FixedHeader,
+    //     cursor: &mut decode::Cursor,
+    //     provider: &'buf mut P,
+    // ) -> Result<Self, crate::Error> {
+    //     // @todo this looks wrong
+    //     if header.remaining_len as usize != cursor.remaining() {
+    //         return Err(crate::Error::MalformedPacket);
+    //     }
 
-        let flags = header.flags;
+    //     let flags = header.flags;
 
-        match header.packet_type {
-            PacketType::Connect => {
-                connect::Connect::decode(cursor, provider, flags).map(Packet::Connect)
-            }
-            PacketType::ConnAck => {
-                connect::ConnAck::decode(cursor, provider, flags).map(Packet::ConnAck)
-            }
-            PacketType::Publish => {
-                publish::Publish::decode(cursor, provider, flags).map(Packet::Publish)
-            }
-            PacketType::PubAck => only_packet_id(cursor).map(Packet::PubAck),
-            PacketType::PubRec => only_packet_id(cursor).map(Packet::PubRec),
-            PacketType::PubRel => only_packet_id(cursor).map(Packet::PubRel),
-            PacketType::PubComp => only_packet_id(cursor).map(Packet::PubComp),
-            PacketType::Subscribe => {
-                subscribe::Subscribe::decode(cursor, provider, flags).map(Packet::Subscribe)
-            }
-            PacketType::SubAck => {
-                subscribe::SubAck::decode(cursor, provider, flags).map(Packet::SubAck)
-            }
-            PacketType::Unsubscribe => {
-                unsubscribe::Unsubscribe::decode(cursor, provider, flags).map(Packet::Unsubscribe)
-            }
-            PacketType::UnsubAck => only_packet_id(cursor).map(Packet::UnsubAck),
-            PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
-            PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
-            PacketType::Disconnect => cursor.expect_empty().map(|_| Packet::Disconnect),
-        }
-    }
+    //     match header.packet_type {
+    //         PacketType::Connect => {
+    //             connect::Connect::decode(cursor, provider, flags).map(Packet::Connect)
+    //         }
+    //         PacketType::ConnAck => {
+    //             connect::ConnAck::decode(cursor, provider, flags).map(Packet::ConnAck)
+    //         }
+    //         PacketType::Publish => {
+    //             publish::Publish::decode(cursor, provider, flags).map(Packet::Publish)
+    //         }
+    //         PacketType::PubAck => only_packet_id(cursor).map(Packet::PubAck),
+    //         PacketType::PubRec => only_packet_id(cursor).map(Packet::PubRec),
+    //         PacketType::PubRel => only_packet_id(cursor).map(Packet::PubRel),
+    //         PacketType::PubComp => only_packet_id(cursor).map(Packet::PubComp),
+    //         PacketType::Subscribe => {
+    //             subscribe::Subscribe::decode(cursor, provider, flags).map(Packet::Subscribe)
+    //         }
+    //         PacketType::SubAck => {
+    //             subscribe::SubAck::decode(cursor, provider, flags).map(Packet::SubAck)
+    //         }
+    //         PacketType::Unsubscribe => {
+    //             unsubscribe::Unsubscribe::decode(cursor, provider, flags).map(Packet::Unsubscribe)
+    //         }
+    //         PacketType::UnsubAck => only_packet_id(cursor).map(Packet::UnsubAck),
+    //         PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
+    //         PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
+    //         PacketType::Disconnect => cursor.expect_empty().map(|_| Packet::Disconnect),
+    //     }
+    // }
 }
 
 fn encode_packet<P: encode::EncodePacket>(
@@ -139,12 +136,12 @@ impl encode::Encode for QoS {
     }
 }
 
-impl<'buf> decode::Decode<'buf> for QoS {
-    fn decode<'cursor>(cursor: &'cursor mut decode::Cursor) -> Result<Self, crate::Error> {
-        let byte = cursor.read_u8()?;
-        Self::try_from(byte)
-    }
-}
+// impl<'buf> decode::Decode<'buf> for QoS {
+//     fn decode<'cursor>(cursor: &'cursor mut decode::Cursor) -> Result<Self, crate::Error> {
+//         let byte = cursor.read_u8()?;
+//         Self::try_from(byte)
+//     }
+// }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(pub u16);
@@ -165,11 +162,11 @@ impl TryFrom<&[u8]> for PacketId {
     type Error = crate::Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let mut cursor = decode::Cursor::new(bytes);
-        let res = cursor.read_u16()?;
+        if bytes.len() != 2 {
+            return Err(crate::Error::MalformedPacket)
+        }
 
-        cursor.expect_empty()?;
-
+        let res = u16::from_be_bytes([bytes[0], bytes[1]]);
         Self::try_from(res)
     }
 }
@@ -185,17 +182,17 @@ impl encode::Encode for PacketId {
     }
 }
 
-impl<'buf> decode::Decode<'buf> for PacketId {
-    fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {
-        Self::try_from(cursor.read_u16()?)
-    }
-}
+// impl<'buf> decode::Decode<'buf> for PacketId {
+//     fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {
+//         Self::try_from(cursor.read_u16()?)
+//     }
+// }
 
-fn only_packet_id(cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
-    let packet_id = PacketId::decode(cursor)?;
-    cursor.expect_empty()?;
-    Ok(packet_id)
-}
+// fn only_packet_id(cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
+//     let packet_id = PacketId::decode(cursor)?;
+//     cursor.expect_empty()?;
+//     Ok(packet_id)
+// }
 
 pub(super) fn empty_body(
     cursor: &mut encode::Cursor,
@@ -207,128 +204,131 @@ pub(super) fn empty_body(
     0u8.encode(cursor)
 }
 
-pub struct Assembled<'a> {
-    pub header: FixedHeader,
-    pub body: &'a [u8],
-}
+// pub struct Assembled<'a> {
+//     pub header: FixedHeader,
+//     pub body: &'a [u8],
+// }
 
-pub struct Assembler<'a> {
-    parser: parser::Parser,
-    header: Option<FixedHeader>,
-    body_chunk: Option<&'a [u8]>,
-}
+// pub struct Assembler {
+//     parser: parser::Parser,
+//     header: Option<FixedHeader>,
+//     // body_chunk: Option<&'a [u8]>,
+// }
 
-impl<'a> Assembler<'a> {
-    pub fn new() -> Self {
-        Self {
-            parser: parser::Parser::new(),
-            header: None,
-            body_chunk: None,
-        }
-    }
+// impl Assembler {
+//     pub fn new() -> Self {
+//         Self {
+//             parser: parser::Parser::new(),
+//             header: None,
+//             // body_chunk: None,
+//         }
+//     }
 
-    pub fn feed(
-        &mut self,
-        input: &'a [u8],
-    ) -> Result<(usize, Option<Assembled<'a>>), crate::Error> {
-        let mut offset = 0;
+//     pub fn feed<'p, P: buffer::Provider<'p>>(
+//         &mut self,
+//         input: &[u8],
+//         provider: P,
+//     ) -> Result<(usize, Option<Assembled>), crate::Error> {
+//         let mut offset = 0;
 
-        loop {
-            let (consumed, event) = self.parser.parse(&input[offset..])?;
+//         loop {
+//             let (consumed, event) = self.parser.parse(&input[offset..])?;
 
-            offset += consumed;
+//             offset += consumed;
 
-            if let Some(event) = event {
-                match event {
-                    parser::Event::PacketStart { header } => {
-                        self.header = Some(header);
-                        self.body_chunk = None;
-                    }
-                    parser::Event::PacketBody { chunk } => {
-                        self.body_chunk = Some(chunk);
-                    }
-                    parser::Event::PacketEnd => {
-                        let header = self.header.take().ok_or(crate::Error::MalformedPacket)?;
-                        let body = self
-                            .body_chunk
-                            .take()
-                            .ok_or(crate::Error::MalformedPacket)?;
+//             if let Some(event) = event {
+//                 match event {
+//                     parser::Event::PacketStart { header } => {
+//                         self.header = Some(header);
+//                         // self.body_chunk = None;
+//                     }
+//                     parser::Event::PacketBody { chunk } => {
+//                         // self.body_chunk = Some(chunk);
+//                     }
+//                     parser::Event::PacketEnd => {
+//                         let header = self.header.take().ok_or(crate::Error::MalformedPacket)?;
+//                         Packet::decode(&header, cursor, provider)?;
+//                         // let body = self
+//                         //     .body_chunk
+//                         //     .take()
+//                         //     .ok_or(crate::Error::MalformedPacket)?;
+//                         let body = &input[0..2];
 
-                        return Ok((offset, Some(Assembled { header, body })));
-                    }
-                }
-            }
+//                         return Ok((offset, Some(Assembled { header, body })));
+//                     }
+//                 }
+//             }
 
-            if consumed == 0 {
-                break;
-            }
-        }
+//             if consumed == 0 {
+//                 break;
+//             }
+//         }
 
-        Ok((offset, None))
-    }
-}
+//         Ok((offset, None))
+//     }
+// }
 
-#[cfg(test)]
-mod tests {
-    use crate::{
-        buffer,
-        packet::{Assembler, QoS, connect, encode, encode_packet, publish},
-        protocol::PacketType,
-    };
+// #[cfg(test)]
+// mod tests {
+//     use crate::{
+//         buffer,
+//         packet::{QoS, connect, encode, encode_packet, publish},
+//         protocol::PacketType,
+//     };
 
-    #[test]
-    fn test_assembler_connect() {
-        let packet = connect::Connect {
-            client_id: buffer::String::from("Client"),
-            keep_alive: 60,
-            clean_session: true,
-            password: None,
-            username: None,
-            will: None,
-        };
+//     #[test]
+//     fn test_assembler_connect() {
+//         let packet = connect::Connect {
+//             client_id: buffer::String::from("Client"),
+//             keep_alive: 60,
+//             clean_session: true,
+//             password: None,
+//             username: None,
+//             will: None,
+//         };
 
-        let mut buf = [0u8; 128];
-        let mut cursor = encode::Cursor::new(&mut buf);
-        encode_packet(&packet, &mut cursor).unwrap();
-        let buf = cursor.written();
-        let mut assembler = Assembler::new();
+//         let mut buf = [0u8; 128];
+//         let mut cursor = encode::Cursor::new(&mut buf);
+//         encode_packet(&packet, &mut cursor).unwrap();
+//         let buf = cursor.written();
+//         let mut assembler = Assembler::new();
 
-        // [16, 18, 0, 4, 77, 81, 84, 84, 4, 0, 0, 60, 0, 6, 67, 108, 105, 101, 110, 116]
+//         // [16, 18, 0, 4, 77, 81, 84, 84, 4, 0, 0, 60, 0, 6, 67, 108, 105, 101, 110, 116]
 
-        let (consumed, packet) = assembler.feed(&buf).unwrap();
+//         let (consumed, packet) = assembler.feed(&buf).unwrap();
 
-        assert_eq!(consumed, buf.len());
-        let packet = packet.expect("Packet should be ready");
+//         assert_eq!(consumed, buf.len());
+//         let packet = packet.expect("Packet should be ready");
 
-        assert!(matches!(packet.header.packet_type, PacketType::Connect));
-        assert_eq!(packet.header.remaining_len as usize, packet.body.len());
-    }
+//         assert!(matches!(packet.header.packet_type, PacketType::Connect));
+//         assert_eq!(packet.header.remaining_len as usize, packet.body.len());
+//     }
 
-    #[test]
-    fn test_assembler_publish() {
-        let packet = publish::Publish {
-            topic: buffer::String::from("topic/test"),
-            payload: buffer::Slice::from(b"hello mqtt".as_slice()),
-            flags: publish::Flags {
-                dup: false,
-                qos: QoS::AtMostOnce,
-                retain: false,
-            },
-            packet_id: None,
-        };
+//     #[test]
+//     fn test_assembler_publish() {
+//         let packet = publish::Publish {
+//             topic: buffer::String::from("topic/test"),
+//             payload: buffer::Slice::from(b"hello mqtt".as_slice()),
+//             flags: publish::Flags {
+//                 dup: false,
+//                 qos: QoS::AtMostOnce,
+//                 retain: false,
+//             },
+//             packet_id: None,
+//         };
 
-        let mut buf = [0u8; 128];
-        let mut cursor = encode::Cursor::new(&mut buf);
-        crate::packet::encode_packet(&packet, &mut cursor).unwrap();
+//         let mut buf = [0u8; 128];
+//         let mut cursor = encode::Cursor::new(&mut buf);
+//         crate::packet::encode_packet(&packet, &mut cursor).unwrap();
 
-        let buf = cursor.written();
-        let mut assembler = Assembler::new();
+//         let buf = cursor.written();
+//         let mut assembler = Assembler::new();
 
-        let (consumed, packet) = assembler.feed(&buf).unwrap();
+//         let (consumed, packet) = assembler.feed(&buf).unwrap();
 
-        assert_eq!(consumed, buf.len());
-        let packet = packet.expect("Packet should be ready");
+//         assert_eq!(consumed, buf.len());
+//         let packet = packet.expect("Packet should be ready");
 
-        assert!(matches!(packet.header.packet_type, PacketType::Publish));
-    }
-}
+//         assert!(matches!(packet.header.packet_type, PacketType::Publish));
+//     }
+// }
