@@ -94,7 +94,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
     pub(crate) fn connect(
         &'s mut self,
         opts: connect::Connect<'s>,
-    ) -> Result<Action, crate::Error> {
+    ) -> Result<Action<'s>, crate::Error> {
         self.ensure_state(State::Disconnected)?;
 
         self.state = State::Connecting;
@@ -110,7 +110,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Send(Packet::Connect(opts)))
     }
 
-    pub(crate) fn on_connack(&mut self, packet: &ConnAck) -> Result<Action, crate::Error> {
+    pub(crate) fn on_connack(&mut self, packet: &ConnAck) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connecting)?;
 
         self.state = State::Connected;
@@ -207,7 +207,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Send(Packet::Unsubscribe(unsub)))
     }
 
-    pub(crate) fn disconnect(&mut self) -> Action {
+    pub(crate) fn disconnect(&mut self) -> Action<'_> {
         if self.state == State::Disconnected {
             return Action::Nothing;
         }
@@ -224,7 +224,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Action::Send(Packet::Disconnect)
     }
 
-    pub(crate) fn ping(&mut self) -> Result<Action, crate::Error> {
+    pub(crate) fn ping(&mut self) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
         if self.ping_outstanding {
@@ -277,35 +277,35 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
     }
 
-    pub(crate) fn on_puback(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
+    pub(crate) fn on_puback(&mut self, packet_id: &PacketId) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.pool.release_pub_id(packet_id, true)?;
 
         Ok(Action::Event(Event::Published))
     }
 
-    pub(crate) fn on_pubrec(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
+    pub(crate) fn on_pubrec(&mut self, packet_id: &PacketId) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.pool.set_pubrel(packet_id)?;
 
         Ok(Action::Send(Packet::PubRel(*packet_id)))
     }
 
-    pub(crate) fn on_pubrel(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
+    pub(crate) fn on_pubrel(&mut self, packet_id: &PacketId) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.pub_inflight_in.mark_complete(packet_id)?;
 
         Ok(Action::Send(Packet::PubComp(*packet_id)))
     }
 
-    pub(crate) fn on_pubcomp(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
+    pub(crate) fn on_pubcomp(&mut self, packet_id: &PacketId) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.pool.release_pub_id(packet_id, false)?;
 
         Ok(Action::Event(Event::Published))
     }
 
-    pub(crate) fn on_suback(&mut self, packet: &SubAck<1>) -> Result<Action, crate::Error> {
+    pub(crate) fn on_suback(&mut self, packet: &SubAck<1>) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.pool.release_sub_id(&packet.packet_id)?;
 
@@ -356,7 +356,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
     }
 
-    pub(crate) fn on_unsuback(&mut self, packet_id: &PacketId) -> Result<Action, crate::Error> {
+    pub(crate) fn on_unsuback(&mut self, packet_id: &PacketId) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
         self.pool.release_unsub_id(packet_id)?;
@@ -375,18 +375,18 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Event(Event::Unsubscribed))
     }
 
-    pub(crate) fn on_pingreq(&self) -> Result<Action, crate::Error> {
+    pub(crate) fn on_pingreq(&self) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         Ok(Action::Send(Packet::PingResp))
     }
 
-    pub(crate) fn on_pingresp(&mut self) -> Result<Action, crate::Error> {
+    pub(crate) fn on_pingresp(&mut self) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
         self.ping_outstanding = false;
         Ok(Action::Nothing)
     }
 
-    pub(crate) fn on_disconnect(&mut self) -> Action {
+    pub(crate) fn on_disconnect(&mut self) -> Action<'_> {
         if self.state == State::Disconnected {
             return Action::Nothing;
         }

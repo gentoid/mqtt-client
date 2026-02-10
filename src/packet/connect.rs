@@ -34,7 +34,7 @@ pub struct Connect<'a> {
 }
 
 impl<'a, 'b> From<Options<'a>> for Connect<'b> {
-    fn from(value: Options<'a>) -> Self {
+    fn from(_value: Options<'a>) -> Self {
         todo!()
     }
 }
