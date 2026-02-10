@@ -14,8 +14,8 @@ pub struct Publish<'a> {
     pub payload: buffer::Slice<'a>,
 }
 
-impl<'a: 'b, 'b> From<Options<'a>> for Publish<'b> {
-    fn from(value: Options<'a>) -> Self {
+impl<'a: 'b, 'b> From<Msg<'a>> for Publish<'b> {
+    fn from(value: Msg<'a>) -> Self {
         Self {
             flags: Flags {
                 dup: false,
@@ -29,7 +29,7 @@ impl<'a: 'b, 'b> From<Options<'a>> for Publish<'b> {
     }
 }
 
-pub struct Options<'a> {
+pub struct Msg<'a> {
     pub qos: QoS,
     pub retain: bool,
     pub topic: &'a str,

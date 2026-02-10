@@ -122,7 +122,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn publish<'a>(
         &mut self,
-        msg: publish::Options<'a>,
+        msg: publish::Msg<'a>,
     ) -> Result<Packet<'a>, crate::Error> {
         self.ensure_state(State::Connected)?;
 

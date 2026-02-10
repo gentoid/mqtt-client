@@ -80,8 +80,8 @@ where
         self.outbox.enqueue(packet)
     }
 
-    pub fn schedule_publish(&mut self, opts: publish::Options<'c>) -> Result<(), crate::Error> {
-        let packet = self.session.publish(opts)?;
+    pub fn schedule_publish(&mut self, msg: publish::Msg<'c>) -> Result<(), crate::Error> {
+        let packet = self.session.publish(msg)?;
         self.outbox.enqueue(packet)
     }
 
