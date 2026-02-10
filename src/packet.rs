@@ -46,6 +46,10 @@ impl<'buf> Packet<'buf> {
         }
     }
 
+    pub(crate) fn required_space(&self) -> usize {
+        todo!()
+    }
+
     pub(crate) fn decode(header: &FixedHeader, body: &'buf [u8]) -> Result<Self, crate::Error> {
         let cursor = &mut decode::Cursor::new(&body);
 

@@ -89,10 +89,7 @@ impl<'a> StreamParser<'a> {
         }
     }
 
-    pub async fn read<R: Read>(
-        &mut self,
-        read: &mut R,
-    ) -> Result<Option<Packet<'_>>, crate::Error> {
+    pub async fn read<R: Read>(&mut self, read: &mut R) -> Result<Packet<'_>, crate::Error> {
         let mut fixed_header = None;
 
         loop {
@@ -124,7 +121,7 @@ impl<'a> StreamParser<'a> {
                             self.end = 0;
                         }
 
-                        return Ok(Some(packet));
+                        return Ok(packet);
                     }
                 }
             }
