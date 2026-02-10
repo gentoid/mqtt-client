@@ -77,7 +77,7 @@ impl<'buf> Cursor<'buf> {
     pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
         let len = bytes.len();
         self.ensure_remaining(len)?;
-        
+
         self.buf[self.pos..self.pos + len].copy_from_slice(bytes);
         self.pos += len;
 
@@ -108,10 +108,6 @@ impl<'buf> Cursor<'buf> {
             Ok(())
         }
     }
-}
-
-pub(super) fn is_full<T>(_: T) -> crate::Error {
-    crate::Error::VectorIsFull
 }
 
 impl Encode for u16 {

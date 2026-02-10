@@ -17,7 +17,7 @@ pub struct Unsubscribe<'a, const N: usize = 1> {
 impl<'a, const N: usize> Unsubscribe<'a, N> {
     pub(crate) fn single(packet_id: PacketId, topic: &'a str) -> Self {
         let mut topics = Vec::new();
-        topics.push(buffer::String::from(topic));
+        topics.push(buffer::String::from(topic)).unwrap();
 
         Self { packet_id, topics }
     }
