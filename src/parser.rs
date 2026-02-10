@@ -1,177 +1,34 @@
 use embedded_io_async::Read;
-use heapless::Vec;
 
 use crate::{
-    buffer,
-    packet::{
-        Packet, PacketId, QoS,
-        connect::{ConnAck, ConnectReturnCode},
-        encode::Encode,
-        publish::{self, Publish},
-        subscribe::{SubAck, SubAckReturnCode},
-    },
+    packet::{Packet, decode},
     protocol::{FixedHeader, PacketType},
 };
 
-pub(crate) async fn read_packet<'p, R: Read, P: buffer::Provider<'p>, const N: usize>(
-    read: &mut R,
-    buf_provider: &'p mut P,
-) -> Result<Packet<'p>, crate::Error> {
-    let header = read_fixed_header(read).await?;
-    read_packet_body::<R, P, N>(read, buf_provider, &header).await
-}
+fn parse_fixed_header(buf: &[u8]) -> Result<Option<(FixedHeader, usize)>, crate::Error> {
+    if buf.len() == 0 {
+        return Ok(None);
+    }
 
-async fn read_fixed_header<R: Read>(read: &mut R) -> Result<FixedHeader, crate::Error> {
-    let byte = read_u8(read).await?;
+    let cursor = &mut decode::Cursor::new(buf);
+    let byte = cursor.read_u8()?;
+    let mut header_len = 1;
     let (packet_type, flags) = parse_first_byte(byte)?;
-    let remaining_len = read_remaining_len(read).await?;
 
-    Ok(FixedHeader {
-        flags,
-        packet_type,
-        remaining_len,
-    })
-}
+    if let Some((remaining_len, read)) = parse_remaining_len(cursor)? {
+        header_len += read;
 
-async fn read_packet_body<'p, R: Read, P: buffer::Provider<'p>, const N: usize>(
-    read: &mut R,
-    buf_provider: &'p mut P,
-    header: &FixedHeader,
-) -> Result<Packet<'p>, crate::Error> {
-    match header.packet_type {
-        PacketType::ConnAck => read_connack(read, header).await,
-        PacketType::Publish => read_publish(read, buf_provider, header).await,
-        PacketType::PubAck => read_only_packet_id(read, header).await.map(Packet::PubAck),
-        PacketType::PubRec => read_only_packet_id(read, header).await.map(Packet::PubRec),
-        PacketType::PubRel => read_only_packet_id(read, header).await.map(Packet::PubRel),
-        PacketType::PubComp => read_only_packet_id(read, header).await.map(Packet::PubComp),
-        PacketType::SubAck => read_suback::<R, N>(read, header).await,
-        PacketType::UnsubAck => read_only_packet_id(read, header)
-            .await
-            .map(Packet::UnsubAck),
-        PacketType::PingReq => expect_empty(header).map(|_| Packet::PingReq),
-        PacketType::PingResp => expect_empty(header).map(|_| Packet::PingResp),
-        _ => Err(crate::Error::UnsupportedIncomingPacket),
-    }
-}
-
-async fn read_connack<'p, R: Read>(
-    read: &mut R,
-    header: &FixedHeader,
-) -> Result<Packet<'p>, crate::Error> {
-    if header.remaining_len != 2 {
-        return Err(crate::Error::MalformedRemainingLength);
-    }
-
-    let flags = read_u8(read).await?;
-    if flags & 0b1111_1110 != 0 {
-        return Err(crate::Error::MalformedPacket);
-    }
-
-    let session_present = (flags & 0b0000_0001) != 0;
-    let return_code = ConnectReturnCode::try_from(read_u8(read).await?)?;
-
-    if return_code != ConnectReturnCode::Accepted && session_present {
-        return Err(crate::Error::MalformedPacket);
-    }
-
-    Ok(Packet::ConnAck(ConnAck {
-        return_code,
-        session_present,
-    }))
-}
-
-async fn read_publish<'p, R: Read, P: buffer::Provider<'p>>(
-    read: &mut R,
-    buf_provider: &'p mut P,
-    header: &FixedHeader,
-) -> Result<Packet<'p>, crate::Error> {
-    let flags = publish::Flags::try_from(header.flags)?;
-
-    // // @todo this cannot be a topic filter unlike subscribe, so maybe check for allowed chars
-    let buf = read_binary(read, buf_provider).await?;
-    let topic = buffer::String::from(buf);
-
-    let packet_id = if let QoS::AtMostOnce = flags.qos {
-        None
-    } else {
-        let packet_id = PacketId::try_from(read_u16(read).await?)?;
-
-        Some(packet_id)
+        return Ok(Some((
+            FixedHeader {
+                flags,
+                packet_type,
+                remaining_len,
+            },
+            header_len,
+        )));
     };
 
-    let read_bytes = topic.required_space() + packet_id.map(|id| id.required_space()).unwrap_or(0);
-
-    let len = header
-        .remaining_len
-        .checked_sub(read_bytes)
-        .ok_or(crate::Error::MalformedRemainingLength)?;
-
-    let buf = buf_provider
-        .provide(len)
-        .map_err(|_| crate::Error::BufferTooSmall)?;
-
-    read.read_exact(buf)
-        .await
-        .map_err(|_| crate::Error::TransportError)?;
-
-    let payload = buffer::Slice::from(buf);
-
-    Ok(Packet::Publish(Publish {
-        flags,
-        topic,
-        packet_id,
-        payload,
-    }))
-}
-
-async fn read_only_packet_id<R: Read>(
-    read: &mut R,
-    header: &FixedHeader,
-) -> Result<PacketId, crate::Error> {
-    if header.remaining_len != 2 {
-        return Err(crate::Error::MalformedRemainingLength);
-    }
-
-    PacketId::try_from(read_u16(read).await?)
-}
-
-async fn read_suback<'p, R: Read, const N: usize>(
-    read: &mut R,
-    header: &FixedHeader,
-) -> Result<Packet<'p>, crate::Error> {
-    if header.remaining_len <= 2 {
-        return Err(crate::Error::MalformedRemainingLength);
-    }
-
-    let mut remaining = header.remaining_len;
-
-    let packet_id = PacketId::try_from(read_u16(read).await?)?;
-    remaining -= 2;
-
-    let mut return_codes = Vec::<SubAckReturnCode, 1>::new();
-
-    while remaining > 0 {
-        let code = SubAckReturnCode::try_from(read_u8(read).await?)?;
-        remaining -= 1;
-
-        return_codes
-            .push(code)
-            .map_err(|_| crate::Error::VectorIsFull)?;
-    }
-
-    Ok(Packet::SubAck(SubAck {
-        packet_id,
-        return_codes,
-    }))
-}
-
-fn expect_empty(header: &FixedHeader) -> Result<(), crate::Error> {
-    if header.remaining_len != 0 {
-        return Err(crate::Error::MalformedRemainingLength);
-    }
-
-    Ok(())
+    Ok(None)
 }
 
 fn parse_first_byte(byte: u8) -> Result<(PacketType, u8), crate::Error> {
@@ -185,13 +42,19 @@ fn parse_first_byte(byte: u8) -> Result<(PacketType, u8), crate::Error> {
     Ok((packet_type, flags))
 }
 
-async fn read_remaining_len<R: Read>(read: &mut R) -> Result<usize, crate::Error> {
+fn parse_remaining_len(
+    cursor: &mut decode::Cursor,
+) -> Result<Option<(usize, usize)>, crate::Error> {
     let mut bytes_read = 0;
     let mut remaining_len: usize = 0;
     let mut multiplier = 1;
 
     loop {
-        let byte = read_u8(read).await?;
+        if cursor.is_empty() {
+            return Ok(None);
+        }
+
+        let byte = cursor.read_u8()?;
         bytes_read += 1;
 
         let digit = (byte & 0x7F) as usize;
@@ -200,7 +63,7 @@ async fn read_remaining_len<R: Read>(read: &mut R) -> Result<usize, crate::Error
             .ok_or(crate::Error::MalformedRemainingLength)?;
 
         if (byte & 0x80) == 0 {
-            return Ok(remaining_len);
+            return Ok(Some((remaining_len, bytes_read)));
         }
 
         if bytes_read >= 4 {
@@ -211,38 +74,95 @@ async fn read_remaining_len<R: Read>(read: &mut R) -> Result<usize, crate::Error
     }
 }
 
-async fn read_u8<R: Read>(read: &mut R) -> Result<u8, crate::Error> {
-    let mut buf = [0u8; 1];
-    read.read_exact(&mut buf)
-        .await
-        .map_err(|_| crate::Error::TransportError)?;
-
-    Ok(buf[0])
+pub struct StreamParser<'a> {
+    buf: &'a mut [u8],
+    start: usize,
+    end: usize,
 }
 
-pub(crate) async fn read_u16<R: Read>(read: &mut R) -> Result<u16, crate::Error> {
-    let mut buf = [0u8; 2];
-    read.read_exact(&mut buf)
-        .await
-        .map_err(|_| crate::Error::TransportError)?;
+impl<'a> StreamParser<'a> {
+    pub fn new(buf: &'a mut [u8]) -> Self {
+        Self {
+            buf,
+            start: 0,
+            end: 0,
+        }
+    }
 
-    Ok(u16::from_be_bytes(buf))
-}
+    pub async fn read<R: Read>(
+        &mut self,
+        read: &mut R,
+    ) -> Result<Option<Packet<'_>>, crate::Error> {
+        let mut fixed_header = None;
 
-async fn read_binary<'p, R: Read, P: buffer::Provider<'p>>(
-    read: &mut R,
-    buf_provider: &mut P,
-) -> Result<&'p mut [u8], crate::Error> {
-    let len = read_u16(read).await? as usize;
-    let buf = buf_provider
-        .provide(len)
-        .map_err(|_| crate::Error::BufferTooSmall)?;
+        loop {
+            match fixed_header {
+                None => {
+                    if let Some((header, header_len)) =
+                        parse_fixed_header(&self.buf[self.start..self.end])?
+                    {
+                        fixed_header = Some(header);
+                        self.start += header_len;
+                    }
+                }
+                Some(header) => {
+                    let remaining_len = header.remaining_len;
 
-    read.read_exact(buf)
-        .await
-        .map_err(|_| crate::Error::TransportError)?;
+                    if remaining_len > self.buf.len() {
+                        return Err(crate::Error::BufferTooSmall);
+                    }
 
-    Ok(buf)
+                    if self.available_data_len() >= remaining_len {
+                        let packet = Packet::decode(
+                            &header,
+                            &self.buf[self.start..self.start + remaining_len],
+                        )?;
+                        self.start += remaining_len;
+
+                        if self.start == self.end {
+                            self.start = 0;
+                            self.end = 0;
+                        }
+
+                        return Ok(Some(packet));
+                    }
+                }
+            }
+
+            self.compact();
+            let read_buf = &mut self.buf[self.end..];
+            let n = read
+                .read(read_buf)
+                .await
+                .map_err(|_| crate::Error::TransportError)?;
+
+            if n == 0 {
+                return Err(crate::Error::TransportError);
+            }
+
+            self.end += n;
+        }
+    }
+
+    fn available_data_len(&self) -> usize {
+        self.end - self.start
+    }
+
+    fn compact(&mut self) {
+        if self.start == 0 {
+            return;
+        }
+
+        if self.start == self.end {
+            self.start = 0;
+            self.end = 0;
+            return;
+        }
+
+        self.buf.copy_within(self.start..self.end, 0);
+        self.end -= self.start;
+        self.start = 0;
+    }
 }
 
 // #[cfg(test)]
