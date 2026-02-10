@@ -27,7 +27,7 @@ pub(crate) enum Action<'a> {
 
 pub enum Event<'a> {
     Connected,
-    Received(&'a publish::Publish<'a>),
+    Received(publish::Publish<'a>),
     Subscribed,
     SubscribeFailed,
     Unsubscribed,
@@ -246,7 +246,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn on_publish<'a>(
         &mut self,
-        packet: &'a publish::Publish,
+        packet: publish::Publish<'a>,
     ) -> Result<Action<'a>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
