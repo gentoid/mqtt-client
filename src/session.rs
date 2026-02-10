@@ -1,7 +1,7 @@
 use heapless::Vec;
 
 use crate::{
-    buffer, incoming,
+    incoming,
     packet::{
         Packet, PacketId, QoS,
         connect::{self, ConnAck},
@@ -51,11 +51,11 @@ pub(crate) struct Subscription<'s> {
     state: SubState,
 }
 
-impl<'a> Subscription<'a> {
-    pub fn new(topic: &'a str, qos: Option<QoS>) -> Self {
+impl<'a> From<subscribe::Options<'a>> for Subscription<'a> {
+    fn from(value: subscribe::Options<'a>) -> Self {
         Self {
-            topic,
-            qos: qos.unwrap_or_default(),
+            topic: value.topic,
+            qos: value.qos.unwrap_or_default(),
             state: SubState::New,
         }
     }
@@ -142,36 +142,39 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn subscribe(
         &mut self,
-        mut sub: Subscription<'s>,
-    ) -> Result<Action<'s>, crate::Error> {
+        opts: subscribe::Options<'s>,
+    ) -> Result<Option<Packet<'s>>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
-        if let Some(existing) = self.subscriptions.iter_mut().find(|s| s.topic == sub.topic) {
+        if let Some(existing) = self
+            .subscriptions
+            .iter_mut()
+            .find(|s| s.topic == opts.topic)
+        {
             match existing.state {
-                SubState::Active | SubState::Pending(_) => return Ok(Action::Nothing),
+                SubState::Active | SubState::Pending(_) => return Ok(None),
                 SubState::New | SubState::Failed => {
-                    existing.qos = sub.qos;
+                    existing.qos = opts.qos.unwrap_or_default();
                 }
                 SubState::UnsubPending(_) => return Err(crate::Error::ProtocolViolation),
             };
 
             let id = self.pool.next_sub_id()?;
             existing.state = SubState::Pending(id);
+            let packet = Subscribe::single(id, existing.clone());
 
-            return Ok(Action::Send(Packet::Subscribe(Subscribe::single(
-                id,
-                existing.clone(),
-            ))));
+            return Ok(Some(Packet::Subscribe(packet)));
         }
 
         let id = self.pool.next_sub_id()?;
-        sub.state = SubState::Pending(id);
+        let sub = Subscription::from(opts);
 
         self.subscriptions
             .push(sub.clone())
             .map_err(|_| crate::Error::SubVectorIsFull)?;
+        let packet = Subscribe::single(id, sub);
 
-        Ok(Action::Send(Packet::Subscribe(Subscribe::single(id, sub))))
+        Ok(Some(Packet::Subscribe(packet)))
     }
 
     pub(crate) fn unsubscribe<'a>(&mut self, topic: &'a str) -> Result<Action<'a>, crate::Error> {

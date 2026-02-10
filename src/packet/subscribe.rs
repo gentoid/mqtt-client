@@ -15,6 +15,11 @@ pub struct Subscribe<'a, const N: usize = 1> {
     pub topics: Vec<Subscription<'a>, N>,
 }
 
+pub struct Options<'a> {
+    pub qos: Option<QoS>,
+    pub topic: &'a str,
+}
+
 impl<'a> Subscribe<'a> {
     pub(crate) fn decode(cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
         let packet_id = PacketId::decode(cursor)?;
@@ -40,10 +45,12 @@ impl<'a> Subscribe<'a> {
     pub(crate) fn single(packet_id: PacketId, sub: session::Subscription<'a>) -> Self {
         let mut topics = Vec::new();
 
-        topics.push(Subscription {
-            topic_filter: buffer::String::from(sub.topic),
-            qos: sub.qos,
-        });
+        topics
+            .push(Subscription {
+                topic_filter: buffer::String::from(sub.topic),
+                qos: sub.qos,
+            })
+            .unwrap();
 
         Self { packet_id, topics }
     }

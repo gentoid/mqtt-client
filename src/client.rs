@@ -5,7 +5,7 @@ use embedded_time::{Instant, duration, rate};
 use heapless::Deque;
 
 use crate::{
-    packet::{self, Packet, connect, publish},
+    packet::{self, Packet, connect, publish, subscribe},
     parser,
     session::{self, Session},
 };
@@ -83,6 +83,14 @@ where
     pub fn schedule_publish(&mut self, msg: publish::Msg<'c>) -> Result<(), crate::Error> {
         let packet = self.session.publish(msg)?;
         self.outbox.enqueue(packet)
+    }
+
+    pub fn schedule_subscribe(&mut self, msg: subscribe::Options<'c>) -> Result<(), crate::Error> {
+        if let Some(packet) = self.session.subscribe(msg)? {
+            self.outbox.enqueue(packet)?;
+        };
+
+        Ok(())
     }
 
     /// High-level poll. Runs timers, then performs one I/O step.
