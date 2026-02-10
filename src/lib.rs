@@ -8,6 +8,8 @@ pub(crate) mod packet_id_pool;
 pub mod parser;
 pub mod protocol;
 pub(crate) mod session;
+#[cfg(feature = "embassy")]
+pub mod time;
 
 #[derive(Debug)]
 pub enum Error {
