@@ -95,7 +95,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         &'s mut self,
         opts: connect::Connect<'s>,
     ) -> Result<Action, crate::Error> {
-        self.ensure_state(State::Disconnected);
+        self.ensure_state(State::Disconnected)?;
 
         self.state = State::Connecting;
         self.ping_outstanding = false;

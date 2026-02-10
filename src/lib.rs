@@ -1,14 +1,13 @@
 #![no_std]
 #[allow(unused)]
-
 pub mod buffer;
 pub mod client;
+pub(crate) mod incoming;
 pub mod packet;
+pub(crate) mod packet_id_pool;
 pub mod parser;
 pub mod protocol;
 pub(crate) mod session;
-pub(crate) mod packet_id_pool;
-pub(crate) mod incoming;
 
 #[derive(Debug)]
 pub enum Error {
