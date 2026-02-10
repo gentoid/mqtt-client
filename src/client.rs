@@ -93,6 +93,14 @@ where
         Ok(())
     }
 
+    pub fn schedule_unsubscribe(&mut self, topic: &str) -> Result<(), crate::Error> {
+        if let Some(packet) = self.session.unsubscribe(topic)? {
+            self.outbox.enqueue(packet)?;
+        };
+
+        Ok(())
+    }
+
     /// High-level poll. Runs timers, then performs one I/O step.
     /// Recommended default for simple loops.
     pub async fn poll<'a>(&'a mut self) -> Result<Option<session::Event<'a>>, crate::Error> {

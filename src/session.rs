@@ -177,7 +177,10 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Some(Packet::Subscribe(packet)))
     }
 
-    pub(crate) fn unsubscribe<'a>(&mut self, topic: &'a str) -> Result<Action<'a>, crate::Error> {
+    pub(crate) fn unsubscribe<'a>(
+        &mut self,
+        topic: &'a str,
+    ) -> Result<Option<Packet<'a>>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
         let sub = self
@@ -188,7 +191,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
         match sub.state {
             SubState::Active => {}
-            SubState::UnsubPending(_) => return Ok(Action::Nothing),
+            SubState::UnsubPending(_) => return Ok(None),
             _ => return Err(crate::Error::ProtocolViolation),
         }
 
@@ -197,7 +200,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         sub.state = SubState::UnsubPending(packet_id);
 
         let unsub = Unsubscribe::single(packet_id, topic);
-        Ok(Action::Send(Packet::Unsubscribe(unsub)))
+        Ok(Some(Packet::Unsubscribe(unsub)))
     }
 
     pub(crate) fn disconnect(&mut self) -> Option<Packet<'_>> {
