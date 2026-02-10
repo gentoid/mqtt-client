@@ -3,7 +3,7 @@ use heapless::Vec;
 use crate::{
     buffer,
     packet::{
-        PacketId, QoS,
+        PacketId, QoS, decode,
         encode::{self, Encode},
     },
     protocol::PacketType,
@@ -16,6 +16,27 @@ pub struct Subscribe<'a, const N: usize = 1> {
 }
 
 impl<'a> Subscribe<'a> {
+    pub(crate) fn decode(cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
+        let packet_id = PacketId::decode(cursor)?;
+
+        let mut topics = Vec::<Subscription<'a>, 1>::new();
+
+        while !cursor.is_empty() {
+            let topic_filter = buffer::String::from(cursor.read_utf8()?);
+            let qos = QoS::decode(cursor)?;
+
+            topics
+                .push(Subscription { topic_filter, qos })
+                .map_err(|_| crate::Error::VectorIsFull)?;
+        }
+
+        if topics.is_empty() {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        Ok(Subscribe { packet_id, topics })
+    }
+
     pub(crate) fn single(packet_id: PacketId, sub: session::Subscription<'a>) -> Self {
         let mut topics = Vec::new();
 
@@ -56,32 +77,6 @@ impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
     }
 }
 
-// impl<'buf, P, const N: usize> decode::DecodePacket<'buf, P> for Subscribe<'buf, N>
-// where
-//     P: buffer::Provider<'buf>,
-// {
-//     fn decode(cursor: &mut decode::Cursor, provider: &mut P, _: u8) -> Result<Self, crate::Error> {
-//         let packet_id = PacketId::decode(cursor)?;
-
-//         let mut topics = Vec::<Subscription<'buf>, N>::new();
-
-//         while !cursor.is_empty() {
-//             let topic_filter = cursor.read_utf8(provider)?;
-//             let qos = QoS::decode(cursor)?;
-
-//             topics
-//                 .push(Subscription { topic_filter, qos })
-//                 .map_err(|_| crate::Error::VectorIsFull)?;
-//         }
-
-//         if topics.is_empty() {
-//             return Err(crate::Error::MalformedPacket);
-//         }
-
-//         Ok(Subscribe { packet_id, topics })
-//     }
-// }
-
 #[derive(Debug)]
 pub struct Subscription<'a> {
     pub topic_filter: buffer::String<'a>,
@@ -104,27 +99,28 @@ pub struct SubAck<const N: usize = 1> {
     pub return_codes: Vec<SubAckReturnCode, N>,
 }
 
-// impl<'buf, P, const N: usize> decode::DecodePacket<'buf, P> for SubAck<N>
-// where
-//     P: buffer::Provider<'buf>,
-// {
-//     fn decode(cursor: &mut decode::Cursor, _: &mut P, _: u8) -> Result<Self, crate::Error> {
-//         let packet_id = PacketId::decode(cursor)?;
-//         let mut return_codes = Vec::<SubAckReturnCode, N>::new();
+impl<const N: usize> SubAck<N> {
+    pub(crate) fn decode(cursor: &mut decode::Cursor<'_>) -> Result<SubAck<N>, crate::Error> {
+        let packet_id = PacketId::decode(cursor)?;
+        let mut return_codes = Vec::<SubAckReturnCode, N>::new();
 
-//         while !cursor.is_empty() {
-//             let code = SubAckReturnCode::try_from(cursor.read_u8()?)?;
-//             return_codes
-//                 .push(code)
-//                 .map_err(|_| crate::Error::VectorIsFull)?;
-//         }
+        while !cursor.is_empty() {
+            let code = SubAckReturnCode::try_from(cursor.read_u8()?)?;
+            return_codes
+                .push(code)
+                .map_err(|_| crate::Error::VectorIsFull)?;
+        }
 
-//         Ok(SubAck {
-//             packet_id,
-//             return_codes,
-//         })
-//     }
-// }
+        if return_codes.is_empty() {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        Ok(SubAck {
+            packet_id,
+            return_codes,
+        })
+    }
+}
 
 #[repr(u8)]
 pub enum SubAckReturnCode {

@@ -5,7 +5,7 @@ use crate::{
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
-    protocol::{PacketType},
+    protocol::{FixedHeader, PacketType},
 };
 
 pub mod connect;
@@ -46,47 +46,35 @@ impl<'buf> Packet<'buf> {
         }
     }
 
-    // pub(crate) fn decode<P: buffer::Provider<'buf>>(
-    //     header: &FixedHeader,
-    //     cursor: &mut decode::Cursor,
-    //     provider: &'buf mut P,
-    // ) -> Result<Self, crate::Error> {
-    //     // @todo this looks wrong
-    //     if header.remaining_len as usize != cursor.remaining() {
-    //         return Err(crate::Error::MalformedPacket);
-    //     }
+    pub(crate) fn decode(header: &FixedHeader, body: &'buf [u8]) -> Result<Self, crate::Error> {
+        let cursor = &mut decode::Cursor::new(&body);
 
-    //     let flags = header.flags;
+        // @todo this looks wrong
+        if header.remaining_len as usize != cursor.remaining() {
+            return Err(crate::Error::MalformedPacket);
+        }
 
-    //     match header.packet_type {
-    //         PacketType::Connect => {
-    //             connect::Connect::decode(cursor, provider, flags).map(Packet::Connect)
-    //         }
-    //         PacketType::ConnAck => {
-    //             connect::ConnAck::decode(cursor, provider, flags).map(Packet::ConnAck)
-    //         }
-    //         PacketType::Publish => {
-    //             publish::Publish::decode(cursor, provider, flags).map(Packet::Publish)
-    //         }
-    //         PacketType::PubAck => only_packet_id(cursor).map(Packet::PubAck),
-    //         PacketType::PubRec => only_packet_id(cursor).map(Packet::PubRec),
-    //         PacketType::PubRel => only_packet_id(cursor).map(Packet::PubRel),
-    //         PacketType::PubComp => only_packet_id(cursor).map(Packet::PubComp),
-    //         PacketType::Subscribe => {
-    //             subscribe::Subscribe::decode(cursor, provider, flags).map(Packet::Subscribe)
-    //         }
-    //         PacketType::SubAck => {
-    //             subscribe::SubAck::decode(cursor, provider, flags).map(Packet::SubAck)
-    //         }
-    //         PacketType::Unsubscribe => {
-    //             unsubscribe::Unsubscribe::decode(cursor, provider, flags).map(Packet::Unsubscribe)
-    //         }
-    //         PacketType::UnsubAck => only_packet_id(cursor).map(Packet::UnsubAck),
-    //         PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
-    //         PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
-    //         PacketType::Disconnect => cursor.expect_empty().map(|_| Packet::Disconnect),
-    //     }
-    // }
+        let flags = header.flags;
+
+        match header.packet_type {
+            PacketType::Connect => connect::Connect::decode(cursor).map(Packet::Connect),
+            PacketType::ConnAck => connect::ConnAck::decode(cursor).map(Packet::ConnAck),
+            PacketType::Publish => publish::Publish::decode(cursor, flags).map(Packet::Publish),
+            PacketType::PubAck => only_packet_id(cursor).map(Packet::PubAck),
+            PacketType::PubRec => only_packet_id(cursor).map(Packet::PubRec),
+            PacketType::PubRel => only_packet_id(cursor).map(Packet::PubRel),
+            PacketType::PubComp => only_packet_id(cursor).map(Packet::PubComp),
+            PacketType::Subscribe => subscribe::Subscribe::decode(cursor).map(Packet::Subscribe),
+            PacketType::SubAck => subscribe::SubAck::decode(cursor).map(Packet::SubAck),
+            PacketType::Unsubscribe => {
+                unsubscribe::Unsubscribe::decode(cursor).map(Packet::Unsubscribe)
+            }
+            PacketType::UnsubAck => only_packet_id(cursor).map(Packet::UnsubAck),
+            PacketType::PingReq => cursor.expect_empty().map(|_| Packet::PingReq),
+            PacketType::PingResp => cursor.expect_empty().map(|_| Packet::PingResp),
+            PacketType::Disconnect => cursor.expect_empty().map(|_| Packet::Disconnect),
+        }
+    }
 }
 
 fn encode_packet<P: encode::EncodePacket>(
@@ -108,6 +96,13 @@ pub enum QoS {
     AtMostOnce = 0,
     AtLeastOnce = 1,
     ExactlyOnce = 2,
+}
+
+impl QoS {
+    fn decode<'cursor>(cursor: &'cursor mut decode::Cursor) -> Result<Self, crate::Error> {
+        let byte = cursor.read_u8()?;
+        Self::try_from(byte)
+    }
 }
 
 impl TryFrom<u8> for QoS {
@@ -136,15 +131,14 @@ impl encode::Encode for QoS {
     }
 }
 
-// impl<'buf> decode::Decode<'buf> for QoS {
-//     fn decode<'cursor>(cursor: &'cursor mut decode::Cursor) -> Result<Self, crate::Error> {
-//         let byte = cursor.read_u8()?;
-//         Self::try_from(byte)
-//     }
-// }
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PacketId(pub u16);
+
+impl PacketId {
+    fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {
+        Self::try_from(cursor.read_u16()?)
+    }
+}
 
 impl TryFrom<u16> for PacketId {
     type Error = crate::Error;
@@ -163,7 +157,7 @@ impl TryFrom<&[u8]> for PacketId {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 2 {
-            return Err(crate::Error::MalformedPacket)
+            return Err(crate::Error::MalformedPacket);
         }
 
         let res = u16::from_be_bytes([bytes[0], bytes[1]]);
@@ -182,17 +176,11 @@ impl encode::Encode for PacketId {
     }
 }
 
-// impl<'buf> decode::Decode<'buf> for PacketId {
-//     fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {
-//         Self::try_from(cursor.read_u16()?)
-//     }
-// }
-
-// fn only_packet_id(cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
-//     let packet_id = PacketId::decode(cursor)?;
-//     cursor.expect_empty()?;
-//     Ok(packet_id)
-// }
+fn only_packet_id(cursor: &mut decode::Cursor<'_>) -> Result<PacketId, crate::Error> {
+    let packet_id = PacketId::decode(cursor)?;
+    cursor.expect_empty()?;
+    Ok(packet_id)
+}
 
 pub(super) fn empty_body(
     cursor: &mut encode::Cursor,

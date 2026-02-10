@@ -3,7 +3,7 @@ use heapless::Vec;
 use crate::{
     buffer,
     packet::{
-        PacketId,
+        PacketId, decode,
         encode::{self, Encode},
     },
     protocol::PacketType,
@@ -20,6 +20,23 @@ impl<'a, const N: usize> Unsubscribe<'a, N> {
         topics.push(buffer::String::from(topic));
 
         Self { packet_id, topics }
+    }
+
+    pub(crate) fn decode(cursor: &mut decode::Cursor<'a>) -> Result<Self, crate::Error> {
+        let packet_id = PacketId::decode(cursor)?;
+
+        let mut topics = Vec::new();
+
+        while !cursor.is_empty() {
+            let topic = buffer::String::from(cursor.read_utf8()?);
+            topics.push(topic).map_err(|_| crate::Error::VectorIsFull)?;
+        }
+
+        if topics.is_empty() {
+            return Err(crate::Error::MalformedPacket);
+        }
+
+        Ok(Unsubscribe { packet_id, topics })
     }
 }
 
@@ -55,20 +72,4 @@ impl<'a, const P: usize> encode::EncodePacket for &Unsubscribe<'a, P> {
 // where
 //     P: buffer::Provider<'buf>,
 // {
-//     fn decode(cursor: &mut decode::Cursor, provider: &mut P, _: u8) -> Result<Self, crate::Error> {
-//         let packet_id = PacketId::decode(cursor)?;
-
-//         let mut topics = Vec::new();
-
-//         while !cursor.is_empty() {
-//             let topic = cursor.read_utf8(provider)?;
-//             topics.push(topic).map_err(|_| crate::Error::VectorIsFull)?;
-//         }
-
-//         if topics.is_empty() {
-//             return Err(crate::Error::MalformedPacket);
-//         }
-
-//         Ok(Unsubscribe { packet_id, topics })
-//     }
 // }

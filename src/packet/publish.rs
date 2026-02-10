@@ -1,7 +1,7 @@
 use crate::{
     buffer,
     packet::{
-        PacketId, QoS,
+        PacketId, QoS, decode,
         encode::{self, Encode},
     },
     protocol::PacketType,
@@ -63,6 +63,28 @@ impl<'a> encode::EncodePacket for &Publish<'a> {
         self.topic.required_space()
             + self.packet_id.map(|id| id.0.required_space()).unwrap_or(0)
             + self.payload.required_space()
+    }
+}
+
+impl<'a> Publish<'a> {
+    pub(crate) fn decode(cursor: &mut decode::Cursor<'a>, flags: u8) -> Result<Self, crate::Error> {
+        let flags = Flags::try_from(flags)?;
+        let topic = buffer::String::from(buffer::Slice::from(cursor.read_binary()?));
+
+        let packet_id = if let QoS::AtMostOnce = flags.qos {
+            None
+        } else {
+            Some(PacketId::decode(cursor)?)
+        };
+
+        let payload = buffer::Slice::from(cursor.read_bytes(cursor.remaining())?);
+
+        Ok(Self {
+            flags,
+            topic,
+            packet_id,
+            payload,
+        })
     }
 }
 
