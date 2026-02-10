@@ -93,7 +93,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn connect(
         &'s mut self,
-        opts: connect::Connect<'s>,
+        opts: connect::Options<'s>,
     ) -> Result<Packet<'s>, crate::Error> {
         self.ensure_state(State::Disconnected)?;
 
@@ -107,7 +107,9 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
             self.subscriptions.clear();
         }
 
-        Ok(Packet::Connect(opts))
+        let packet = connect::Connect::from(opts);
+
+        Ok(Packet::Connect(packet))
     }
 
     pub(crate) fn on_connack(&mut self, packet: &ConnAck) -> Result<Action<'_>, crate::Error> {

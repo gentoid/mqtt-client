@@ -33,9 +33,16 @@ pub struct Connect<'a> {
     pub password: Option<buffer::Slice<'a>>,
 }
 
-impl<'a, 'b> From<Options<'a>> for Connect<'b> {
-    fn from(_value: Options<'a>) -> Self {
-        todo!()
+impl<'b, 'a: 'b> From<Options<'a>> for Connect<'b> {
+    fn from(opts: Options<'a>) -> Self {
+        Self {
+            clean_session: opts.clean_session,
+            client_id: buffer::String::from(opts.client_id),
+            keep_alive: opts.keep_alive,
+            password: opts.password.map(|p| buffer::Slice::from(p)),
+            username: opts.username.map(|u| buffer::String::from(u)),
+            will: opts.will.map(|w| Will::from(w)),
+        }
     }
 }
 
@@ -171,6 +178,17 @@ pub struct Will<'a> {
     pub retain: bool,
     pub topic: buffer::String<'a>,
     pub payload: buffer::Slice<'a>,
+}
+
+impl<'b, 'a: 'b> From<WillOptions<'a>> for Will<'b> {
+    fn from(value: WillOptions<'a>) -> Self {
+        Self {
+            payload: buffer::Slice::from(value.payload),
+            qos: value.qos,
+            retain: value.retain,
+            topic: buffer::String::from(value.topic),
+        }
+    }
 }
 
 pub struct ConnAck {

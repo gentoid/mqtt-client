@@ -62,7 +62,7 @@ where
         })
     }
 
-    pub fn connect(&'c mut self, opts: connect::Connect<'c>) -> Result<(), crate::Error> {
+    pub fn schedule_connect(&'c mut self, opts: connect::Options<'c>) -> Result<(), crate::Error> {
         let packet = self.session.connect(opts)?;
         self.outbox.enqueue(packet)
     }
