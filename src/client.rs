@@ -5,7 +5,7 @@ use embedded_time::{Instant, duration, rate};
 use heapless::Deque;
 
 use crate::{
-    packet::{self, Packet, connect},
+    packet::{self, Packet, connect, publish},
     parser,
     session::{self, Session},
 };
@@ -67,6 +67,24 @@ where
         self.outbox.enqueue(packet)
     }
 
+    pub fn schedule_disconnect(&mut self) -> Result<(), crate::Error> {
+        if let Some(packet) = self.session.disconnect() {
+            self.outbox.enqueue(packet)?;
+        };
+
+        Ok(())
+    }
+
+    pub fn schedule_ping(&mut self) -> Result<(), crate::Error> {
+        let packet = self.session.ping()?;
+        self.outbox.enqueue(packet)
+    }
+
+    pub fn schedule_publish(&mut self, opts: publish::Options<'c>) -> Result<(), crate::Error> {
+        let packet = self.session.publish(opts)?;
+        self.outbox.enqueue(packet)
+    }
+
     /// High-level poll. Runs timers, then performs one I/O step.
     /// Recommended default for simple loops.
     pub async fn poll<'a>(&'a mut self) -> Result<Option<session::Event<'a>>, crate::Error> {
@@ -80,19 +98,13 @@ where
         let now = self.clock.try_now().map_err(|_| crate::Error::TimeError)?;
 
         if self.keep_alive.should_ping(now)? {
-            let action = self.session.ping()?;
-            let event_opt = apply_action(&mut self.outbox, action)?;
-            debug_assert!(event_opt.is_none(), "We do not expect any event on Ping");
+            self.schedule_ping()?;
         }
 
         if self.keep_alive.timed_out(now)? {
-            let action = self.session.disconnect();
-            let event_opt = apply_action(&mut self.outbox, action)?;
-            debug_assert!(
-                event_opt.is_none(),
-                "We do not expect any event on Disconnect"
-            );
+            self.schedule_disconnect()?;
             // @todo return some status maybe? E.g. enum TimedOut { Yes, No }
+            // @todo reconnect
         }
 
         Ok(())

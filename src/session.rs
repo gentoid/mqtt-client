@@ -61,13 +61,6 @@ impl<'a> Subscription<'a> {
     }
 }
 
-pub struct Publish<'a> {
-    pub qos: QoS,
-    pub retain: bool,
-    pub topic: &'a str,
-    pub payload: &'a [u8],
-}
-
 pub(crate) struct Session<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize> {
     state: State,
     session_present: bool,
@@ -127,27 +120,22 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Event(Event::Connected))
     }
 
-    pub(crate) fn publish<'a>(&mut self, msg: Publish<'a>) -> Result<Action<'a>, crate::Error> {
+    pub(crate) fn publish<'a>(
+        &mut self,
+        msg: publish::Options<'a>,
+    ) -> Result<Packet<'a>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
-        let mut packet = publish::Publish {
-            flags: publish::Flags {
-                dup: false,
-                qos: msg.qos,
-                retain: msg.retain,
-            },
-            topic: buffer::String::from(msg.topic),
-            packet_id: None,
-            payload: buffer::Slice::from(msg.payload),
-        };
+        let qos = msg.qos;
+        let mut packet = publish::Publish::from(msg);
 
-        match msg.qos {
-            QoS::AtMostOnce => Ok(Action::Send(Packet::Publish(packet))),
+        match qos {
+            QoS::AtMostOnce => Ok(Packet::Publish(packet)),
             QoS::AtLeastOnce | QoS::ExactlyOnce => {
-                let packet_id = self.pool.next_pub_id(msg.qos == QoS::AtLeastOnce)?;
+                let packet_id = self.pool.next_pub_id(qos == QoS::AtLeastOnce)?;
                 packet.packet_id = Some(packet_id);
 
-                Ok(Action::Send(Packet::Publish(packet)))
+                Ok(Packet::Publish(packet))
             }
         }
     }
@@ -209,9 +197,9 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Ok(Action::Send(Packet::Unsubscribe(unsub)))
     }
 
-    pub(crate) fn disconnect(&mut self) -> Action<'_> {
+    pub(crate) fn disconnect(&mut self) -> Option<Packet<'_>> {
         if self.state == State::Disconnected {
-            return Action::Nothing;
+            return None;
         }
 
         self.state = State::Disconnected;
@@ -223,10 +211,10 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
             self.subscriptions.clear();
         }
 
-        Action::Send(Packet::Disconnect)
+        Some(Packet::Disconnect)
     }
 
-    pub(crate) fn ping(&mut self) -> Result<Action<'_>, crate::Error> {
+    pub(crate) fn ping(&mut self) -> Result<Packet<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
         if self.ping_outstanding {
@@ -235,7 +223,7 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
 
         self.ping_outstanding = true;
-        Ok(Action::Send(Packet::PingReq))
+        Ok(Packet::PingReq)
     }
 
     fn ensure_state(&self, state: State) -> Result<(), crate::Error> {
