@@ -11,6 +11,10 @@ pub(crate) mod session;
 #[cfg(feature = "embassy")]
 pub mod time;
 
+pub use client::Client;
+pub use packet::connect::Options as ConnectOptions;
+pub use packet::publish::Msg as PublishMsg;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidFlags,
