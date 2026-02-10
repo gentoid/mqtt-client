@@ -5,7 +5,7 @@ use embedded_time::{Instant, duration, rate};
 use heapless::Deque;
 
 use crate::{
-    packet::{self, Packet},
+    packet::{self, Packet, connect},
     parser,
     session::{self, Session},
 };
@@ -60,6 +60,11 @@ where
             parser: parser::StreamParser::new(rx_buf),
             outbox: Outbox::new(tx_buf),
         })
+    }
+
+    pub fn connect(&'c mut self, opts: connect::Connect<'c>) -> Result<(), crate::Error> {
+        let packet = self.session.connect(opts)?;
+        self.outbox.enqueue(packet)
     }
 
     /// High-level poll. Runs timers, then performs one I/O step.
@@ -132,7 +137,7 @@ fn apply_action<'a, 'b, const Q: usize>(
 ) -> Result<Option<session::Event<'a>>, crate::Error> {
     match action {
         session::Action::Send(packet) => {
-            tx.enqueue(&packet)?;
+            tx.enqueue(packet)?;
             Ok(None)
         }
         session::Action::Event(event) => Ok(Some(event)),
@@ -159,7 +164,7 @@ impl<'a, const QUEUE_SIZE: usize> Outbox<'a, QUEUE_SIZE> {
         !self.queue.is_empty()
     }
 
-    fn enqueue(&mut self, packet: &Packet<'_>) -> Result<(), crate::Error> {
+    fn enqueue(&mut self, packet: Packet<'_>) -> Result<(), crate::Error> {
         if self.queue.is_empty() {
             self.cursor = 0;
         }
