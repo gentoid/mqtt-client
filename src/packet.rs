@@ -15,7 +15,7 @@ pub mod publish;
 pub mod subscribe;
 pub mod unsubscribe;
 
-pub enum Packet<'a> {
+pub(crate) enum Packet<'a> {
     Connect(Connect<'a>),
     ConnAck(ConnAck),
     Publish(publish::Publish<'a>),
@@ -136,7 +136,7 @@ impl encode::Encode for QoS {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PacketId(pub u16);
+pub(crate) struct PacketId(pub(crate) u16);
 
 impl PacketId {
     fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {

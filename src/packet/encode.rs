@@ -1,18 +1,18 @@
 use crate::protocol;
 
-pub trait EncodePacket {
+pub(crate) trait EncodePacket {
     const PACKET_TYPE: protocol::PacketType;
     fn flags(&self) -> u8;
     fn required_space(&self) -> usize;
     fn encode_body(&self, cursor: &mut Cursor) -> Result<(), crate::Error>;
 }
 
-pub trait Encode {
+pub(crate) trait Encode {
     fn encode(&self, cursor: &mut Cursor) -> Result<(), crate::Error>;
     fn required_space(&self) -> usize;
 }
 
-pub trait RequiredSize {
+trait RequiredSize {
     fn required_space(&self) -> usize;
 }
 
@@ -42,21 +42,21 @@ pub(super) fn remaining_length(mut len: usize, cursor: &mut Cursor) -> Result<us
     Ok(i)
 }
 
-pub struct Cursor<'buf> {
+pub(crate) struct Cursor<'buf> {
     buf: &'buf mut [u8],
     pos: usize,
 }
 
 impl<'buf> Cursor<'buf> {
-    pub const fn new(buf: &'buf mut [u8]) -> Self {
+    pub(crate) const fn new(buf: &'buf mut [u8]) -> Self {
         Self { buf, pos: 0 }
     }
 
-    pub fn written(&self) -> &[u8] {
+    pub(crate) fn written(&self) -> &[u8] {
         &self.buf[..self.pos]
     }
 
-    pub fn write_u8(&mut self, byte: u8) -> Result<(), crate::Error> {
+    pub(crate) fn write_u8(&mut self, byte: u8) -> Result<(), crate::Error> {
         self.ensure_remaining(1)?;
         self.buf[self.pos] = byte;
         self.pos += 1;
@@ -64,7 +64,7 @@ impl<'buf> Cursor<'buf> {
         Ok(())
     }
 
-    pub fn write_u16(&mut self, value: u16) -> Result<(), crate::Error> {
+    fn write_u16(&mut self, value: u16) -> Result<(), crate::Error> {
         self.ensure_remaining(2)?;
         let [one, two] = value.to_be_bytes();
         self.buf[self.pos] = one;
@@ -74,7 +74,7 @@ impl<'buf> Cursor<'buf> {
         Ok(())
     }
 
-    pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
         let len = bytes.len();
         self.ensure_remaining(len)?;
 
@@ -84,20 +84,20 @@ impl<'buf> Cursor<'buf> {
         Ok(())
     }
 
-    pub fn write_binary_chunk(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
+    pub(crate) fn write_binary_chunk(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
         self.write_u16(bytes.len() as u16)?;
         self.write_bytes(bytes)
     }
 
-    pub fn write_utf8(&mut self, value: &str) -> Result<(), crate::Error> {
+    fn write_utf8(&mut self, value: &str) -> Result<(), crate::Error> {
         self.write_binary_chunk(value.as_bytes())
     }
 
-    pub fn remaining(&self) -> usize {
+    fn remaining(&self) -> usize {
         self.buf.len() - self.pos
     }
 
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.remaining() == 0
     }
 

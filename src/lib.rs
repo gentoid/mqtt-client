@@ -1,5 +1,5 @@
 #![no_std]
-#[allow(unused)]
+
 pub mod buffer;
 pub mod client;
 pub(crate) mod incoming;

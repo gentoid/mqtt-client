@@ -10,9 +10,9 @@ use crate::{
     session,
 };
 
-pub struct Subscribe<'a, const N: usize = 1> {
-    pub packet_id: PacketId,
-    pub topics: Vec<Subscription<'a>, N>,
+pub(crate) struct Subscribe<'a, const N: usize = 1> {
+    packet_id: PacketId,
+    topics: Vec<Subscription<'a>, N>,
 }
 
 pub struct Options<'a> {
@@ -85,9 +85,9 @@ impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
 }
 
 #[derive(Debug)]
-pub struct Subscription<'a> {
-    pub topic_filter: buffer::String<'a>,
-    pub qos: QoS,
+struct Subscription<'a> {
+    topic_filter: buffer::String<'a>,
+    qos: QoS,
 }
 
 impl<'a> encode::Encode for Subscription<'a> {
@@ -101,9 +101,9 @@ impl<'a> encode::Encode for Subscription<'a> {
     }
 }
 
-pub struct SubAck<const N: usize = 1> {
+pub(crate) struct SubAck<const N: usize = 1> {
     pub(crate) packet_id: PacketId,
-    pub return_codes: Vec<SubAckReturnCode, N>,
+    pub(crate) return_codes: Vec<SubAckReturnCode, N>,
 }
 
 impl<const N: usize> SubAck<N> {
@@ -130,7 +130,7 @@ impl<const N: usize> SubAck<N> {
 }
 
 #[repr(u8)]
-pub enum SubAckReturnCode {
+pub(crate) enum SubAckReturnCode {
     SuccessMaxQoS0 = 0x00,
     SuccessMaxQoS1 = 0x01,
     SuccessMaxQoS2 = 0x02,

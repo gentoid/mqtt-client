@@ -9,9 +9,9 @@ use crate::{
     protocol::PacketType,
 };
 
-pub struct Unsubscribe<'a, const N: usize = 1> {
-    pub packet_id: PacketId,
-    pub topics: Vec<buffer::String<'a>, N>,
+pub(crate) struct Unsubscribe<'a, const N: usize = 1> {
+    packet_id: PacketId,
+    topics: Vec<buffer::String<'a>, N>,
 }
 
 impl<'a, const N: usize> Unsubscribe<'a, N> {

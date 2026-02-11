@@ -1,18 +1,18 @@
-use crate::packet::encode::{self, RequiredSize};
+use crate::packet::encode;
 
-pub trait Provider<'buf> {
+trait Provider<'buf> {
     type Error: core::fmt::Debug;
 
     fn provide(&mut self, len: usize) -> Result<&'buf mut [u8], Self::Error>;
 }
 
 #[derive(Debug)]
-pub struct Slice<'buf> {
+pub(crate) struct Slice<'buf> {
     inner: &'buf [u8],
 }
 
 impl<'buf> Slice<'buf> {
-    pub fn as_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         self.inner
     }
 }
@@ -94,7 +94,7 @@ impl<'buf> Provider<'buf> for Bump<'buf> {
 }
 
 #[derive(Debug)]
-pub struct String<'buf> {
+pub(crate) struct String<'buf> {
     inner: Slice<'buf>,
 }
 

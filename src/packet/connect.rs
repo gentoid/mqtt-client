@@ -24,13 +24,13 @@ pub struct WillOptions<'a> {
 }
 
 #[derive(Debug)]
-pub struct Connect<'a> {
-    pub clean_session: bool,
-    pub keep_alive: u16,
-    pub client_id: buffer::String<'a>,
-    pub will: Option<Will<'a>>,
-    pub username: Option<buffer::String<'a>>,
-    pub password: Option<buffer::Slice<'a>>,
+pub(crate) struct Connect<'a> {
+    clean_session: bool,
+    keep_alive: u16,
+    client_id: buffer::String<'a>,
+    will: Option<Will<'a>>,
+    username: Option<buffer::String<'a>>,
+    password: Option<buffer::Slice<'a>>,
 }
 
 impl<'b, 'a: 'b> From<Options<'a>> for Connect<'b> {
@@ -173,11 +173,11 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
 }
 
 #[derive(Debug)]
-pub struct Will<'a> {
-    pub qos: QoS,
-    pub retain: bool,
-    pub topic: buffer::String<'a>,
-    pub payload: buffer::Slice<'a>,
+struct Will<'a> {
+    qos: QoS,
+    retain: bool,
+    topic: buffer::String<'a>,
+    payload: buffer::Slice<'a>,
 }
 
 impl<'b, 'a: 'b> From<WillOptions<'a>> for Will<'b> {
@@ -191,9 +191,9 @@ impl<'b, 'a: 'b> From<WillOptions<'a>> for Will<'b> {
     }
 }
 
-pub struct ConnAck {
-    pub session_present: bool,
-    pub return_code: ConnectReturnCode,
+pub(crate) struct ConnAck {
+    pub(crate) session_present: bool,
+    return_code: ConnectReturnCode,
 }
 
 impl ConnAck {
@@ -224,7 +224,7 @@ impl ConnAck {
 // @note: for MQTT 5.0 it is a whole another story
 #[repr(u8)]
 #[derive(PartialEq)]
-pub enum ConnectReturnCode {
+enum ConnectReturnCode {
     Accepted = 0,
     UnacceptableProtocolVersion = 1,
     IdentifierRejected = 2,

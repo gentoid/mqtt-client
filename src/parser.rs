@@ -74,14 +74,14 @@ fn parse_remaining_len(
     }
 }
 
-pub struct StreamParser<'a> {
+pub(crate) struct StreamParser<'a> {
     buf: &'a mut [u8],
     start: usize,
     end: usize,
 }
 
 impl<'a> StreamParser<'a> {
-    pub fn new(buf: &'a mut [u8]) -> Self {
+    pub(crate) fn new(buf: &'a mut [u8]) -> Self {
         Self {
             buf,
             start: 0,
@@ -89,7 +89,7 @@ impl<'a> StreamParser<'a> {
         }
     }
 
-    pub async fn read<R: Read>(&mut self, read: &mut R) -> Result<Packet<'_>, crate::Error> {
+    pub(crate) async fn read<R: Read>(&mut self, read: &mut R) -> Result<Packet<'_>, crate::Error> {
         let mut fixed_header = None;
 
         loop {

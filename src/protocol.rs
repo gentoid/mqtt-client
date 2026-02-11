@@ -1,6 +1,6 @@
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PacketType {
+pub(crate) enum PacketType {
     Connect = 1,
     ConnAck = 2,
     Publish = 3,
@@ -20,7 +20,7 @@ pub enum PacketType {
 }
 
 impl PacketType {
-    pub fn validate_flags(&self, flags: u8) -> bool {
+    pub(crate) fn validate_flags(&self, flags: u8) -> bool {
         match self {
             Self::Publish => true,
             Self::PubRel | Self::Subscribe | Self::Unsubscribe => flags == 0b0100,
@@ -44,8 +44,8 @@ impl TryFrom<u8> for PacketType {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct FixedHeader {
-    pub packet_type: PacketType,
-    pub flags: u8,
-    pub remaining_len: usize,
+pub(crate) struct FixedHeader {
+    pub(crate) packet_type: PacketType,
+    pub(crate) flags: u8,
+    pub(crate) remaining_len: usize,
 }
