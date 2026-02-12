@@ -9,6 +9,8 @@ use crate::{
     protocol::PacketType,
 };
 
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) struct Unsubscribe<'a, const N: usize = 1> {
     packet_id: PacketId,
     topics: Vec<buffer::String<'a>, N>,

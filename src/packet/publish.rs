@@ -7,6 +7,8 @@ use crate::{
     protocol::PacketType,
 };
 
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) struct Publish<'a> {
     pub(crate) flags: Flags,
     pub(crate) topic: buffer::String<'a>,
@@ -36,6 +38,8 @@ pub struct Msg<'a> {
     pub payload: &'a [u8],
 }
 
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) struct Flags {
     pub(crate) dup: bool,
     pub(crate) qos: QoS,

@@ -1,5 +1,7 @@
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) enum PacketType {
     Connect = 1,
     ConnAck = 2,
@@ -44,6 +46,8 @@ impl TryFrom<u8> for PacketType {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) struct FixedHeader {
     pub(crate) packet_type: PacketType,
     pub(crate) flags: u8,

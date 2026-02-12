@@ -24,6 +24,8 @@ pub struct WillOptions<'a> {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) struct Connect<'a> {
     clean_session: bool,
     keep_alive: u16,
@@ -173,6 +175,8 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 struct Will<'a> {
     qos: QoS,
     retain: bool,
@@ -191,6 +195,8 @@ impl<'b, 'a: 'b> From<WillOptions<'a>> for Will<'b> {
     }
 }
 
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub(crate) struct ConnAck {
     pub(crate) session_present: bool,
     return_code: ConnectReturnCode,
@@ -224,6 +230,8 @@ impl ConnAck {
 // @note: for MQTT 5.0 it is a whole another story
 #[repr(u8)]
 #[derive(PartialEq)]
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 enum ConnectReturnCode {
     Accepted = 0,
     UnacceptableProtocolVersion = 1,
