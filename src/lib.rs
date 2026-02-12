@@ -29,6 +29,7 @@ pub enum Error {
     EncodeNotImplemented,
     UnexpectedEof,
     TransportError,
+    RemoteClosed,
     UnsupportedIncomingPacket,
     BufferTooSmall,
     TimeError,

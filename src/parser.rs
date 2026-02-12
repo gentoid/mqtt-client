@@ -125,13 +125,18 @@ impl<'a> StreamParser<'a> {
 
             self.compact();
             let read_buf = &mut self.buf[self.end..];
+            if read_buf.is_empty() {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("Read buffer full, cannot read more data");
+                return Err(crate::Error::BufferTooSmall);
+            }
             let n = read
                 .read(read_buf)
                 .await
                 .map_err(|_| crate::Error::TransportError)?;
 
             if n == 0 {
-                return Err(crate::Error::TransportError);
+                return Err(crate::Error::RemoteClosed);
             }
 
             self.end += n;
