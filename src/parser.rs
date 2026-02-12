@@ -93,38 +93,35 @@ impl<'a> StreamParser<'a> {
         let mut fixed_header = None;
 
         loop {
-            match fixed_header {
-                None => {
-                    if let Some((header, header_len)) =
-                        parse_fixed_header(&self.buf[self.start..self.end])?
-                    {
-                        fixed_header = Some(header);
-                        self.start += header_len;
-                    }
-                }
-                Some(header) => {
-                    let remaining_len = header.remaining_len;
-
-                    if remaining_len > self.buf.len() {
-                        return Err(crate::Error::BufferTooSmall);
-                    }
-
-                    if self.available_data_len() >= remaining_len {
-                        let packet = Packet::decode(
-                            &header,
-                            &self.buf[self.start..self.start + remaining_len],
-                        )?;
-                        self.start += remaining_len;
-
-                        if self.start == self.end {
-                            self.start = 0;
-                            self.end = 0;
-                        }
-
-                        return Ok(packet);
-                    }
+            if fixed_header.is_none() {
+                if let Some((header, header_len)) =
+                    parse_fixed_header(&self.buf[self.start..self.end])?
+                {
+                    fixed_header = Some(header);
+                    self.start += header_len;
                 }
             }
+
+            if let Some(header) = fixed_header {
+                let remaining_len = header.remaining_len;
+
+                if remaining_len > self.buf.len() {
+                    return Err(crate::Error::BufferTooSmall);
+                }
+
+                if self.available_data_len() >= remaining_len {
+                    let packet =
+                        Packet::decode(&header, &self.buf[self.start..self.start + remaining_len])?;
+                    self.start += remaining_len;
+
+                    if self.start == self.end {
+                        self.start = 0;
+                        self.end = 0;
+                    }
+
+                    return Ok(packet);
+                }
+            };
 
             self.compact();
             let read_buf = &mut self.buf[self.end..];
