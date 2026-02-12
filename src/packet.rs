@@ -41,6 +41,12 @@ impl<'buf> Packet<'buf> {
             Self::Publish(packet) => encode_packet(packet, cursor),
             Self::Subscribe(packet) => encode_packet(packet, cursor),
             Self::Unsubscribe(packet) => encode_packet(packet, cursor),
+            Self::PubAck(packet_id) => encode_packet_id(PacketType::PubAck, 0, packet_id, cursor),
+            Self::PubRec(packet_id) => encode_packet_id(PacketType::PubRec, 0, packet_id, cursor),
+            Self::PubRel(packet_id) => {
+                encode_packet_id(PacketType::PubRel, 0b0010, packet_id, cursor)
+            }
+            Self::PubComp(packet_id) => encode_packet_id(PacketType::PubComp, 0, packet_id, cursor),
             Self::PingReq => empty_body(cursor, PacketType::PingReq),
             Self::PingResp => empty_body(cursor, PacketType::PingResp),
             Self::Disconnect => empty_body(cursor, PacketType::Disconnect),
@@ -93,6 +99,19 @@ fn encode_packet<P: encode::EncodePacket>(
     encode::remaining_length(packet.required_space(), cursor)?;
 
     packet.encode_body(cursor)
+}
+
+fn encode_packet_id(
+    packet_type: PacketType,
+    flags: u8,
+    packet_id: &PacketId,
+    cursor: &mut encode::Cursor<'_>,
+) -> Result<(), crate::Error> {
+    let header = ((packet_type as u8) << 4) | (flags & 0x0F);
+    cursor.write_u8(header)?;
+
+    encode::remaining_length(packet_id.required_space(), cursor)?;
+    packet_id.encode(cursor)
 }
 
 #[repr(u8)]
