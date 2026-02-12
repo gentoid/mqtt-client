@@ -76,7 +76,7 @@ impl<'a> encode::EncodePacket for &Publish<'a> {
         if let Some(id) = self.packet_id {
             id.0.encode(cursor)?;
         }
-        self.payload.encode(cursor)?;
+        self.payload.encode_bytes(cursor)?;
 
         Ok(())
     }

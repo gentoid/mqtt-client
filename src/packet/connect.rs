@@ -128,7 +128,7 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
 
         if let Some(will) = &self.will {
             required += will.topic.required_space();
-            required += will.payload.required_space();
+            required += will.payload.required_space() + 2;
         }
 
         if let Some(username) = &self.username {
@@ -136,7 +136,7 @@ impl<'buf> encode::EncodePacket for &Connect<'buf> {
         }
 
         if let Some(password) = &self.password {
-            required += password.required_space();
+            required += password.required_space() + 2;
         }
 
         required

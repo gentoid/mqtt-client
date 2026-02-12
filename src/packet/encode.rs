@@ -93,7 +93,7 @@ impl<'buf> Cursor<'buf> {
         Ok(())
     }
 
-    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
+    pub(crate) fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), crate::Error> {
         let len = bytes.len();
         self.ensure_remaining(len)?;
 

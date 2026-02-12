@@ -23,6 +23,10 @@ impl<'buf> Slice<'buf> {
     fn len(&self) -> usize {
         self.inner.len()
     }
+
+    pub(crate) fn encode_bytes(&self, cursor: &mut encode::Cursor) -> Result<(), crate::Error> {
+        cursor.write_bytes(self.inner)
+    }
 }
 
 impl<'buf> encode::Encode for Slice<'buf> {
@@ -31,7 +35,7 @@ impl<'buf> encode::Encode for Slice<'buf> {
     }
 
     fn required_space(&self) -> usize {
-        self.inner.len() + 2
+        self.inner.len()
     }
 }
 
@@ -142,6 +146,6 @@ impl<'buf> encode::Encode for String<'buf> {
     }
 
     fn required_space(&self) -> usize {
-        self.inner.required_space()
+        self.inner.required_space() + 2
     }
 }
