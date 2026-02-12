@@ -64,7 +64,6 @@ impl<'a> From<subscribe::Options<'a>> for Subscription<'a> {
 pub(crate) struct Session<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize> {
     state: State,
     session_present: bool,
-    ping_outstanding: bool,
     pool: PacketIdPool<N_PUB_OUT, N_SUB>,
     subscriptions: Vec<Subscription<'s>, N_SUB>,
     pub_inflight_in: incoming::Publish<N_PUB_IN>,
@@ -77,7 +76,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         Self {
             state: State::Disconnected,
             session_present: false,
-            ping_outstanding: false,
             pool: PacketIdPool::new(),
             subscriptions: Vec::new(),
             pub_inflight_in: incoming::Publish::new(),
@@ -91,7 +89,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         self.ensure_state(State::Disconnected)?;
 
         self.state = State::Connecting;
-        self.ping_outstanding = false;
         self.session_present = false;
 
         self.pool.clear();
@@ -214,7 +211,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         self.state = State::Disconnected;
         self.pool.clear();
         self.pub_inflight_in.clear();
-        self.ping_outstanding = false;
 
         if !self.session_present {
             self.subscriptions.clear();
@@ -226,12 +222,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
     pub(crate) fn ping(&mut self) -> Result<Packet<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
 
-        if self.ping_outstanding {
-            // @note or maybe ignore the request
-            return Err(crate::Error::PingOutstanding);
-        }
-
-        self.ping_outstanding = true;
         Ok(Packet::PingReq)
     }
 
@@ -381,7 +371,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
 
     pub(crate) fn on_pingresp(&mut self) -> Result<Action<'_>, crate::Error> {
         self.ensure_state(State::Connected)?;
-        self.ping_outstanding = false;
         Ok(Action::Nothing)
     }
 
@@ -393,7 +382,6 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         self.state = State::Disconnected;
         self.pool.clear();
         self.pub_inflight_in.clear();
-        self.ping_outstanding = false;
 
         if !self.session_present {
             self.subscriptions.clear();
