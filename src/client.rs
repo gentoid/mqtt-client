@@ -76,7 +76,7 @@ where
         Ok(())
     }
 
-    pub fn schedule_ping(&mut self) -> Result<(), crate::Error> {
+    fn schedule_ping(&mut self) -> Result<(), crate::Error> {
         let packet = self.session.ping()?;
         self.outbox.enqueue(packet)
     }
