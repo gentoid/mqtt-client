@@ -84,10 +84,10 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
     }
 
-    pub(crate) fn connect(
-        &'s mut self,
-        opts: connect::Options<'s>,
-    ) -> Result<Packet<'s>, crate::Error> {
+    pub(crate) fn connect<'a>(
+        &mut self,
+        opts: connect::Options<'a>,
+    ) -> Result<Packet<'a>, crate::Error> {
         self.ensure_state(State::Disconnected)?;
 
         self.state = State::Connecting;
@@ -140,10 +140,13 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
     }
 
-    pub(crate) fn subscribe(
+    pub(crate) fn subscribe<'a: 's>(
         &mut self,
-        opts: subscribe::Options<'s>,
-    ) -> Result<Option<Packet<'s>>, crate::Error> {
+        opts: subscribe::Options<'a>,
+    ) -> Result<Option<Packet<'a>>, crate::Error>
+    where
+        's: 'a,
+    {
         self.ensure_state(State::Connected)?;
 
         if let Some(existing) = self

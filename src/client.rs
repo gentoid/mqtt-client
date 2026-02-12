@@ -62,7 +62,7 @@ where
         })
     }
 
-    pub fn schedule_connect(&'c mut self, opts: connect::Options<'c>) -> Result<(), crate::Error> {
+    pub fn schedule_connect<'a>(&mut self, opts: connect::Options<'a>) -> Result<(), crate::Error> {
         let packet = self.session.connect(opts)?;
         self.outbox.enqueue(packet)
     }
@@ -80,12 +80,15 @@ where
         self.outbox.enqueue(packet)
     }
 
-    pub fn schedule_publish(&mut self, msg: publish::Msg<'c>) -> Result<(), crate::Error> {
+    pub fn schedule_publish<'a>(&mut self, msg: publish::Msg<'a>) -> Result<(), crate::Error> {
         let packet = self.session.publish(msg)?;
         self.outbox.enqueue(packet)
     }
 
-    pub fn schedule_subscribe(&mut self, msg: subscribe::Options<'c>) -> Result<(), crate::Error> {
+    pub fn schedule_subscribe<'a: 'c>(
+        &mut self,
+        msg: subscribe::Options<'a>,
+    ) -> Result<(), crate::Error> {
         if let Some(packet) = self.session.subscribe(msg)? {
             self.outbox.enqueue(packet)?;
         };
