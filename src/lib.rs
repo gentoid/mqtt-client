@@ -3,6 +3,7 @@
 pub mod buffer;
 pub mod client;
 pub(crate) mod incoming;
+pub(crate) mod keep_alive;
 pub mod packet;
 pub(crate) mod packet_id_pool;
 pub mod parser;
