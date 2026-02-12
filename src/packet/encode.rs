@@ -34,7 +34,7 @@ pub(super) fn remaining_length(mut len: usize, cursor: &mut Cursor) -> Result<us
             break;
         }
 
-        if len == 4 {
+        if i == 4 {
             return Err(crate::Error::MalformedPacket);
         }
     }
