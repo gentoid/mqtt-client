@@ -196,7 +196,7 @@ pub(super) fn empty_body(
     cursor: &mut encode::Cursor,
     packet_type: PacketType,
 ) -> Result<(), crate::Error> {
-    let header = ((packet_type as u8) << 4) | 0b0010;
+    let header = ((packet_type as u8) << 4) | 0b0000;
 
     header.encode(cursor)?;
     0u8.encode(cursor)
