@@ -34,6 +34,9 @@ impl KeepAlive {
     }
 
     pub fn from_sec(value: u64) -> embedded_time::duration::Generic<<EmbassyClock as Clock>::T> {
-        Self::from_us(value * <EmbassyClock as Clock>::SCALING_FACTOR)
+        let scale = <EmbassyClock as Clock>::SCALING_FACTOR;
+        let ticks = value.saturating_mul(*scale.denominator() as u64) / (*scale.numerator() as u64);
+
+        embedded_time::duration::Generic::new(ticks, scale)
     }
 }
