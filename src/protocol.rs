@@ -25,7 +25,7 @@ impl PacketType {
     pub(crate) fn validate_flags(&self, flags: u8) -> bool {
         match self {
             Self::Publish => true,
-            Self::PubRel | Self::Subscribe | Self::Unsubscribe => flags == 0b0100,
+            Self::PubRel | Self::Subscribe | Self::Unsubscribe => flags == 0b0010,
             _ => flags == 0,
         }
     }
