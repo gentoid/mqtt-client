@@ -135,13 +135,13 @@ where
 
         if self.outbox.has_pending() {
             self.outbox.flush_one(&mut self.transport).await?;
-            self.keep_alive.update(now);
+            self.keep_alive.on_send(now);
+
             return Ok(None);
         }
 
         let packet = self.parser.read(&mut self.transport).await?;
-
-        self.keep_alive.update(now);
+        self.keep_alive.on_receive(now);
 
         let action = match packet {
             Packet::ConnAck(conn_ack) => self.session.on_connack(&conn_ack)?,
@@ -254,6 +254,8 @@ struct KeepAlive<C: embedded_time::Clock> {
     keep_alive: duration::Generic<C::T>,
     half_keep_alive: duration::Generic<C::T>,
     last_activity: Instant<C>,
+    ping_outstanding: bool,
+    enabled: bool,
 }
 
 impl<C> KeepAlive<C>
@@ -261,31 +263,41 @@ where
     C: embedded_time::Clock,
 {
     fn try_new(clock: &C, keep_alive: duration::Generic<C::T>) -> Result<Self, crate::Error> {
-        let half_keep_alive = duration::Generic::new(
-            keep_alive.integer(),
-            *keep_alive.scaling_factor() * rate::Fraction::from_integer(2),
-        );
+        let enabled = keep_alive.integer() != 0u32.into();
+        let half_keep_alive = if enabled {
+            duration::Generic::new(
+                keep_alive.integer(),
+                *keep_alive.scaling_factor() / rate::Fraction::from_integer(2),
+            )
+        } else {
+            keep_alive
+        };
 
         Ok(Self {
             keep_alive,
             half_keep_alive,
             last_activity: clock.try_now().map_err(|_| crate::Error::TimeError)?,
-            // ping_outstanding: false,
+            ping_outstanding: false,
+            enabled,
         })
     }
 
-    fn update(&mut self, now: Instant<C>) {
+    fn on_send(&mut self, now: Instant<C>) {
         self.last_activity = now;
-        // self.ping_outstanding = false;
+    }
+
+    fn on_receive(&mut self, now: Instant<C>) {
+        self.last_activity = now;
+        self.ping_outstanding = false;
     }
 
     fn should_ping(&mut self, now: Instant<C>) -> Result<bool, crate::Error> {
-        if self.elapsed(now)? >= self.half_keep_alive
-        /* && !self.ping_outstanding */
-        {
-            // this changes on receiving PINGRESP
-            // self.ping_outstanding = true;
-            // self.last_activity = now;
+        if !self.enabled || self.ping_outstanding {
+            return Ok(false);
+        }
+
+        if self.elapsed(now)? >= self.half_keep_alive {
+            self.ping_outstanding = true;
             Ok(true)
         } else {
             Ok(false)
@@ -293,9 +305,9 @@ where
     }
 
     fn timed_out(&self, now: Instant<C>) -> Result<bool, crate::Error> {
-        // if !self.ping_outstanding {
-        //     return Ok(false);
-        // }
+        if !self.enabled || !self.ping_outstanding {
+            return Ok(false);
+        }
 
         Ok(self.elapsed(now)? >= self.keep_alive)
     }
