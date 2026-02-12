@@ -16,6 +16,26 @@ trait RequiredSize {
     fn required_space(&self) -> usize;
 }
 
+pub(super) fn calculate_remaining_length(mut len: usize) -> Result<usize, crate::Error> {
+    let mut i = 0;
+
+    loop {
+        len /= 128;
+
+        i += 1;
+
+        if len == 0 {
+            break;
+        }
+
+        if i == 4 {
+            return Err(crate::Error::MalformedPacket);
+        }
+    }
+
+    Ok(i)
+}
+
 pub(super) fn remaining_length(mut len: usize, cursor: &mut Cursor) -> Result<usize, crate::Error> {
     let mut i = 0;
 

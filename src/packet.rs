@@ -1,7 +1,7 @@
 use crate::{
     packet::{
         connect::{ConnAck, Connect},
-        encode::Encode,
+        encode::{Encode, EncodePacket},
         subscribe::{SubAck, Subscribe},
         unsubscribe::Unsubscribe,
     },
@@ -54,8 +54,25 @@ impl<'buf> Packet<'buf> {
         }
     }
 
-    pub(crate) fn required_space(&self) -> usize {
-        todo!()
+    pub(crate) fn required_space(&self) -> Result<usize, crate::Error> {
+        let body_len = match self {
+            Self::Connect(packet) => packet.required_space(),
+            Self::Publish(packet) => packet.required_space(),
+            Self::Subscribe(packet) => packet.required_space(),
+            Self::Unsubscribe(packet) => packet.required_space(),
+            Self::PubAck(packet_id)
+            | Self::PubRec(packet_id)
+            | Self::PubRel(packet_id)
+            | Self::PubComp(packet_id)
+            | Self::UnsubAck(packet_id) => packet_id.required_space(),
+            Self::PingReq
+            | Self::PingResp
+            | Self::Disconnect
+            | Self::ConnAck(_)
+            | Self::SubAck(_) => 0,
+        };
+
+        Ok(encode::calculate_remaining_length(body_len)? + body_len + 1)
     }
 
     pub(crate) fn decode(header: &FixedHeader, body: &'buf [u8]) -> Result<Self, crate::Error> {
