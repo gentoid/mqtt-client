@@ -14,6 +14,7 @@ pub mod time;
 pub use client::Client;
 pub use packet::connect::Options as ConnectOptions;
 pub use packet::publish::Msg as PublishMsg;
+pub use session::Event;
 
 #[derive(Debug)]
 pub enum Error {

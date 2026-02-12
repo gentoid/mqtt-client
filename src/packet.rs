@@ -178,7 +178,7 @@ impl encode::Encode for QoS {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg(feature = "defmt")]
 #[derive(defmt::Format)]
-pub(crate) struct PacketId(pub(crate) u16);
+pub struct PacketId(pub(crate) u16);
 
 impl PacketId {
     fn decode(cursor: &mut decode::Cursor) -> Result<Self, crate::Error> {

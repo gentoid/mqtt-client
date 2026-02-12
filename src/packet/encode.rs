@@ -21,7 +21,6 @@ pub(super) fn calculate_remaining_length(mut len: usize) -> Result<usize, crate:
 
     loop {
         len /= 128;
-
         i += 1;
 
         if len == 0 {

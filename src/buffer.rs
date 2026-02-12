@@ -9,7 +9,7 @@ trait Provider<'buf> {
 #[derive(Debug)]
 #[cfg(feature = "defmt")]
 #[derive(defmt::Format)]
-pub(crate) struct Slice<'buf> {
+pub struct Slice<'buf> {
     inner: &'buf [u8],
 }
 
@@ -98,7 +98,7 @@ impl<'buf> Provider<'buf> for Bump<'buf> {
 #[derive(Debug)]
 #[cfg(feature = "defmt")]
 #[derive(defmt::Format)]
-pub(crate) struct String<'buf> {
+pub struct String<'buf> {
     inner: Slice<'buf>,
 }
 

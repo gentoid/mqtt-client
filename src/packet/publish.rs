@@ -9,11 +9,11 @@ use crate::{
 
 #[cfg(feature = "defmt")]
 #[derive(defmt::Format)]
-pub(crate) struct Publish<'a> {
-    pub(crate) flags: Flags,
-    pub(crate) topic: buffer::String<'a>,
-    pub(crate) packet_id: Option<PacketId>,
-    payload: buffer::Slice<'a>,
+pub struct Publish<'a> {
+    pub flags: Flags,
+    pub topic: buffer::String<'a>,
+    pub packet_id: Option<PacketId>,
+    pub payload: buffer::Slice<'a>,
 }
 
 impl<'a: 'b, 'b> From<Msg<'a>> for Publish<'b> {
@@ -40,10 +40,10 @@ pub struct Msg<'a> {
 
 #[cfg(feature = "defmt")]
 #[derive(defmt::Format)]
-pub(crate) struct Flags {
-    pub(crate) dup: bool,
-    pub(crate) qos: QoS,
-    retain: bool,
+pub struct Flags {
+    pub dup: bool,
+    pub qos: QoS,
+    pub retain: bool,
 }
 
 impl TryFrom<u8> for Flags {
