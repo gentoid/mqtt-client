@@ -200,7 +200,7 @@ impl<'a, const QUEUE_SIZE: usize> Outbox<'a, QUEUE_SIZE> {
             self.cursor = 0;
         }
 
-        let needed = packet.required_space();
+        let needed = packet.required_space()?;
 
         if self.cursor + needed > self.buf.len() {
             return Err(crate::Error::BufferTooSmall);
