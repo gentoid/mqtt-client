@@ -35,7 +35,7 @@ pub enum Event<'a> {
     Disconnected,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, defmt::Format)]
 enum SubState {
     New,
     Pending(PacketId),
@@ -44,7 +44,7 @@ enum SubState {
     Failed,
 }
 
-#[derive(Clone)]
+#[derive(Clone, defmt::Format)]
 pub(crate) struct Subscription<'s> {
     pub(crate) topic: &'s str,
     pub(crate) qos: QoS,
@@ -167,7 +167,8 @@ impl<'s, const N_PUB_IN: usize, const N_PUB_OUT: usize, const N_SUB: usize>
         }
 
         let id = self.pool.next_sub_id()?;
-        let sub = Subscription::from(opts);
+        let mut sub = Subscription::from(opts);
+        sub.state = SubState::Pending(id);
 
         self.subscriptions
             .push(sub.clone())

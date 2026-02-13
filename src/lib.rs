@@ -13,11 +13,15 @@ pub(crate) mod session;
 pub mod time;
 
 pub use client::Client;
+pub use packet::QoS;
 pub use packet::connect::Options as ConnectOptions;
 pub use packet::publish::Msg as PublishMsg;
+pub use packet::subscribe::Options as SubscribeOptions;
 pub use session::Event;
 
 #[derive(Debug)]
+#[cfg(feature = "defmt")]
+#[derive(defmt::Format)]
 pub enum Error {
     InvalidFlags,
     MalformedRemainingLength,
