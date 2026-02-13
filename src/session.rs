@@ -35,7 +35,8 @@ pub enum Event<'a> {
     Disconnected,
 }
 
-#[derive(Clone, PartialEq, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, PartialEq)]
 enum SubState {
     New,
     Pending(PacketId),
@@ -44,7 +45,8 @@ enum SubState {
     Failed,
 }
 
-#[derive(Clone, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone)]
 pub(crate) struct Subscription<'s> {
     pub(crate) topic: &'s str,
     pub(crate) qos: QoS,

@@ -15,8 +15,7 @@ pub mod publish;
 pub mod subscribe;
 pub mod unsubscribe;
 
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum Packet<'a> {
     Connect(Connect<'a>),
     ConnAck(ConnAck),
@@ -133,8 +132,7 @@ fn encode_packet_id(
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum QoS {
     #[default]
     AtMostOnce = 0,
@@ -176,8 +174,7 @@ impl encode::Encode for QoS {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PacketId(pub(crate) u16);
 
 impl PacketId {

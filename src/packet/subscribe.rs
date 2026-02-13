@@ -10,8 +10,7 @@ use crate::{
     session,
 };
 
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct Subscribe<'a, const N: usize = 1> {
     packet_id: PacketId,
     topics: Vec<Subscription<'a>, N>,
@@ -87,8 +86,7 @@ impl<'a, const P: usize> encode::EncodePacket for &Subscribe<'a, P> {
 }
 
 #[derive(Debug)]
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Subscription<'a> {
     topic_filter: buffer::String<'a>,
     qos: QoS,
@@ -105,8 +103,7 @@ impl<'a> encode::Encode for Subscription<'a> {
     }
 }
 
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct SubAck<const N: usize = 1> {
     pub(crate) packet_id: PacketId,
     pub(crate) return_codes: Vec<SubAckReturnCode, N>,
@@ -136,8 +133,7 @@ impl<const N: usize> SubAck<N> {
 }
 
 #[repr(u8)]
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum SubAckReturnCode {
     SuccessMaxQoS0 = 0x00,
     SuccessMaxQoS1 = 0x01,

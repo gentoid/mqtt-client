@@ -20,8 +20,7 @@ pub use packet::subscribe::Options as SubscribeOptions;
 pub use session::Event;
 
 #[derive(Debug)]
-#[cfg(feature = "defmt")]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     InvalidFlags,
     MalformedRemainingLength,
